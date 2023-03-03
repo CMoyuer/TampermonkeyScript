@@ -1,0 +1,475 @@
+// ==UserScript==
+// @name         闪韵灵镜歌曲搜索扩展
+// @namespace    cipher-editor-extra-song-search
+// @version      1.0
+// @description  通过BeatSaver方便添加歌曲
+// @author       如梦Nya
+// @license      MIT
+// @run-at       document-start
+// @grant        unsafeWindow
+// @match        https://cipher-editor-cn.picovr.com/*
+// @icon         https://cipher-editor-cn.picovr.com/assets/logo-eabc5412.png
+// @require      https://code.jquery.com/jquery-3.6.0.min.js
+// ==/UserScript==
+
+const $ = window.jQuery
+
+// ================================================================================ 工具类 ================================================================================
+
+/**
+ * 数据库操作类
+ */
+class WebDB {
+    constructor() {
+        this.db = undefined
+    }
+
+    /**
+     * 打开数据库
+     * @param {string} dbName 数据库名
+     * @param {number | undefined} dbVersion 数据库版本
+     * @returns 
+     */
+    open(dbName, dbVersion) {
+        let self = this
+        return new Promise(function (resolve, reject) {
+            const indexDB = unsafeWindow.indexedDB || unsafeWindow.webkitIndexedDB || unsafeWindow.mozIndexedDB
+            let req = indexDB.open(dbName, dbVersion)
+            req.onerror = reject
+            req.onsuccess = function (e) {
+                self.db = e.target.result
+                resolve(self)
+            }
+        });
+    }
+
+    /**
+     * 查出一条数据
+     * @param {string} tableName 表名
+     * @param {string} key 键名
+     * @returns 
+     */
+    get(tableName, key) {
+        let self = this
+        return new Promise(function (resolve, reject) {
+            let req = self.db.transaction([tableName]).objectStore(tableName).get(key)
+            req.onerror = reject
+            req.onsuccess = function (e) {
+                resolve(e.target.result)
+            }
+        });
+    }
+
+    /**
+     * 插入、更新一条数据
+     * @param {string} tableName 表名
+     * @param {string} key 键名
+     * @param {any} value 数据
+     * @returns 
+     */
+    put(tableName, key, value) {
+        let self = this
+        return new Promise(function (resolve, reject) {
+            let req = self.db.transaction([tableName], 'readwrite').objectStore(tableName).put(value, key)
+            req.onerror = reject
+            req.onsuccess = function (e) {
+                resolve(e.target.result)
+            }
+        });
+    }
+
+    /**
+     * 关闭数据库
+     */
+    close() {
+        this.db.close()
+        delete this.db
+    }
+}
+
+/**
+ * 闪韵灵镜工具类
+ */
+class CipherUtils {
+    /**
+     * 处理歌曲文件
+     * @param {ArrayBuffer} rawBuffer 
+     * @returns 
+     */
+    static applySongFile(rawBuffer) {
+        // 前面追加数据，以通过校验
+        let rawData = new Uint8Array(rawBuffer)
+        let BYTE_VERIFY_ARRAY = [235, 186, 174, 235, 186, 174, 235, 186, 174, 85, 85]
+
+        let buffer = new ArrayBuffer(rawData.length + BYTE_VERIFY_ARRAY.length)
+        let dataView = new DataView(buffer)
+        for (let i = 0; i < BYTE_VERIFY_ARRAY.length; i++) {
+            dataView.setUint8(i, BYTE_VERIFY_ARRAY[i])
+        }
+        for (let i = 0; i < rawData.length; i++) {
+            dataView.setUint8(BYTE_VERIFY_ARRAY.length + i, rawData[i])
+        }
+        return new Blob([buffer], { type: "application/octet-stream" })
+    }
+
+    /**
+     * 修复歌单布局
+     */
+    static fixSongListStyle() {
+        let songBox = $(".css-10szcx0")[0].parentNode
+        if ($(".css-1wfsuwr").length > 0) {
+            songBox.style["overflow-y"] = "hidden"
+            songBox.parentNode.style["margin-bottom"] = ""
+        } else {
+            songBox.style["overflow-y"] = "auto"
+            songBox.parentNode.style["margin-bottom"] = "44px"
+        }
+    }
+
+    /**
+     * 添加通过BeatSaver搜索歌曲的按钮
+     * @param {function | undefined} onRawBtnClick 点击原本搜索按钮事件
+     * @param {function | undefined} onBsBtnClick 点击BeatSaver按钮事件
+     * @returns 
+     */
+    static applySearchButton(onRawBtnClick, onBsBtnClick) {
+        let boxList = $(".css-1u8wof2") // 弹窗
+        if (boxList.length == 0) return
+        let searchBoxList = boxList.find(".css-70qvj9")
+        if (searchBoxList.length == 0 || searchBoxList[0].childNodes.length >= 3) return // 搜索栏元素数量
+
+        let rawSearchBtn = $(boxList[0]).find("button")[0] // 搜索按钮
+
+        // 添加一个按钮
+        let searchBtn = document.createElement("button")
+        searchBtn.className = rawSearchBtn.className
+        searchBtn.innerHTML = "BeatSaver"
+        $(rawSearchBtn.parentNode).append(searchBtn);
+
+        // 绑定事件
+        rawSearchBtn.onmousedown = onRawBtnClick
+        searchBtn.onmousedown = () => {
+            if (typeof onBsBtnClick == "function") onBsBtnClick()
+            $(rawSearchBtn).click()
+        }
+    }
+}
+
+/**
+ * 通用工具类
+ */
+class Utils {
+    /**
+     * 动态添加Script
+     * @param {string} url 脚本链接
+     * @returns 
+     */
+    static dynamicLoadJs(url) {
+        return new Promise(function (resolve, reject) {
+            let head = unsafeWindow.document.getElementsByTagName('head')[0];
+            let script = unsafeWindow.document.createElement('script');
+            script.type = 'text/javascript';
+            script.src = url;
+            script.onload = script.onreadystatechange = function () {
+                if (!this.readyState || this.readyState === "loaded" || this.readyState === "complete") {
+                    resolve()
+                    script.onload = script.onreadystatechange = null;
+                }
+            }
+            head.appendChild(script);
+        });
+    }
+}
+
+/**
+ * BeatSaver工具类
+ */
+class BeatSaverUtils {
+    /**
+     * 搜索歌曲列表
+     * @param {string} searchKey 搜索关键字
+     * @param {number} pageCount 搜索页数
+     * @returns 
+     */
+    static searchSongList(searchKey, pageCount = 1) {
+        return new Promise(function (resolve, reject) {
+            let songList = []
+            let songInfoMap = {}
+            let count = 0
+            let cbFlag = false
+            let func = (data, status) => {
+                if (status !== "success") {
+                    if (!cbFlag) {
+                        cbFlag = true
+                        reject("访问BeatSaver时发生错误！")
+                    }
+                    return
+                }
+                // 填充数据
+                data.docs.forEach(rawInfo => {
+                    let artist = rawInfo.metadata.songAuthorName
+                    let bpm = rawInfo.metadata.bpm
+                    let cover = rawInfo.versions[0].coverURL
+                    let song_name = rawInfo.metadata.songName
+                    let id = 80000000000 + parseInt(rawInfo.id, 36)
+                    songList.push({ artist, bpm, cover, song_name, id })
+
+                    let downloadURL = rawInfo.versions[0].downloadURL
+                    let previewURL = rawInfo.versions[0].previewURL
+                    songInfoMap[id] = { downloadURL, previewURL }
+                })
+                if (++count == pageCount) {
+                    cbFlag = true
+                    resolve({ songList, songInfoMap })
+                }
+            }
+            for (let i = 0; i < pageCount; i++) {
+                $.get("https://beatsaver.com/api/search/text/" + i + "?sortOrder=Relevance&q=" + searchKey, func)
+            }
+        })
+    }
+
+
+    /**
+     * 从BeatSaver下载ogg文件
+     * @param {number} zipUrl 歌曲压缩包链接
+     * @returns {Promise}
+     */
+    static downloadSongFile(zipUrl) {
+        return new Promise(function (resolve, reject) {
+            let xhr = new XMLHttpRequest()
+            xhr.open('GET', zipUrl, true)
+            xhr.responseType = "blob"
+            xhr.onload = function () {
+                if (this.status !== 200) {
+                    reject("http code:" + this.status)
+                    return
+                }
+                let blob = new Blob([this.response], { type: "application/zip" })
+                // 解压出ogg文件
+                BeatSaverUtils.getOggFromZip(blob).then(oggBlob => {
+                    resolve(oggBlob)
+                }).catch(reject)
+            }
+            xhr.onerror = reject
+            xhr.send()
+        })
+    }
+
+    /**
+     * 从压缩包中提取出ogg文件
+     * @param {blob} zipBlob 
+     * @returns 
+     */
+    static async getOggFromZip(zipBlob) {
+        let zip = await unsafeWindow.JSZip.loadAsync(zipBlob)
+        let eggFile = undefined
+        for (let fileName in zip.files) {
+            if (!fileName.endsWith(".egg")) continue
+            eggFile = zip.file(fileName)
+            break
+        }
+        let rawBuffer = await eggFile.async("arraybuffer")
+        return CipherUtils.applySongFile(rawBuffer)
+    }
+}
+
+// ================================================================================ 方法 ================================================================================
+
+// 是否通过BeatSaver搜索
+let searchFromBeatSaver = false
+
+let songInfoMap = {}
+
+// 绑定XHR请求监听器
+function bindXhrListener() {
+    // 拦截XHR请求
+    const oldXMLHttpRequestSend = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.send = function () {
+        let url = this._url
+        if (!url) {
+            oldXMLHttpRequestSend.apply(this, arguments);
+            return
+        }
+        let applyFlag = true
+        if (searchFromBeatSaver) {
+            if (url.startsWith("/song/staticList")) {
+                // 歌曲列表
+                let result = decodeURI(url).match(/songName=(\S*)&/)
+                let key = ""
+                if (result) key = result[1].replace("+", " ")
+                BeatSaverUtils.searchSongList(key, 2).then(res => {
+                    this.extraSongList = res.songList
+                    songInfoMap = res.songInfoMap
+                    oldXMLHttpRequestSend.apply(this, arguments);
+                }).catch(err => {
+                    alert("搜索歌曲失败！")
+                    console.error(err)
+                    this.extraSongList = []
+                    oldXMLHttpRequestSend.apply(this, arguments);
+                })
+                applyFlag = false
+            } else if (url.startsWith("/beatsaver/")) {
+                let result = decodeURI(url).match(/\d{1,}/)
+                let id = parseInt(result[0])
+                BeatSaverUtils.downloadSongFile(songInfoMap[id].downloadURL).then(oggBlob => {
+                    songInfoMap[id].ogg = oggBlob
+                    oldXMLHttpRequestSend.apply(this, arguments)
+                }).catch(err => {
+                    console.error(err)
+                    alert("下载歌曲失败！")
+                })
+                applyFlag = false
+            }
+        }
+        if (applyFlag) oldXMLHttpRequestSend.apply(this, arguments)
+    }
+
+    // 修改XHR结果
+    const originOpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function (_, url) {
+        if (searchFromBeatSaver) {
+            if (url.startsWith("/song/staticList")) {
+                // 搜索歌单
+                this.addEventListener("readystatechange", function () {
+                    if (this.readyState !== this.DONE) return
+                    const res = JSON.parse(this.responseText)
+                    if (this.extraSongList) {
+                        res.data.data = this.extraSongList
+                        res.data.total = res.data.data.length
+                        this.extraSongList = []
+                    }
+                    Object.defineProperty(this, 'responseText', {
+                        writable: true
+                    });
+                    this.responseText = JSON.stringify(res)
+                    setTimeout(CipherUtils.fixSongListStyle, 500)
+                });
+            } else if (url.startsWith("/song/ogg")) {
+                // 获取ogg文件下载链接
+                let result = decodeURI(url).match(/id=(\d*)/)
+                let id = parseInt(result[1])
+                if (id > 80000000000) {
+                    this.addEventListener("readystatechange", function () {
+                        if (this.readyState !== this.DONE) return
+                        const res = JSON.parse(this.responseText)
+                        res.code = 0
+                        res.data = { link: "/beatsaver/" + id }
+                        res.msg = "success"
+                        Object.defineProperty(this, 'responseText', {
+                            writable: true
+                        });
+                        this.responseText = JSON.stringify(res)
+                    });
+                }
+            } else if (url.startsWith("/beatsaver/")) {
+                this.addEventListener("readystatechange", function () {
+                    if (this.readyState !== this.DONE) return
+                    let result = decodeURI(url).match(/\d{1,}/)
+                    let id = parseInt(result[0])
+                    Object.defineProperty(this, 'response', {
+                        writable: true
+                    });
+                    this.response = songInfoMap[id].ogg
+                });
+            }
+        }
+        originOpen.apply(this, arguments);
+    };
+}
+
+/**
+ * 更新数据库
+ */
+async function updateDatabase() {
+    let BLITZ_RHYTHM = await new WebDB().open("BLITZ_RHYTHM")
+    let BLITZ_RHYTHM_files = await new WebDB().open("BLITZ_RHYTHM-files")
+    let BLITZ_RHYTHM_official = await new WebDB().open("BLITZ_RHYTHM-official")
+    // 获取用户名称
+    let userName
+    {
+        let rawUser = await BLITZ_RHYTHM.get("keyvaluepairs", "persist:user")
+        userName = JSON.parse(JSON.parse(rawUser).userInfo).name
+    }
+    let songInfos = []
+    let hasChanged = false
+    let songsInfo
+    // 更新歌曲信息
+    {
+        let rawSongs = await BLITZ_RHYTHM.get("keyvaluepairs", "persist:songs")
+        songsInfo = JSON.parse(rawSongs)
+        let songsById = JSON.parse(songsInfo.byId)
+        for (let key in songsById) {
+            let officialId = songsById[key].officialId
+            if (typeof officialId != "number" || officialId < 80000000000) continue
+            let songInfo = songsById[key]
+            songInfos.push(JSON.parse(JSON.stringify(songInfo)))
+            songInfo.coverArtFilename = songInfo.coverArtFilename.replace("" + songInfo.officialId, songInfo.id)
+            songInfo.songFilename = songInfo.songFilename.replace("" + songInfo.officialId, songInfo.id)
+            songInfo.officialId = ""
+            songInfo.mapAuthorName = userName
+            songsById[key] = songInfo
+            hasChanged = true
+        }
+        songsInfo.byId = JSON.stringify(songsById)
+    }
+    // 处理文件
+    for (let index in songInfos) {
+        let songInfo = songInfos[index]
+        // 复制封面和音乐文件
+        let cover = await BLITZ_RHYTHM_official.get("keyvaluepairs", songInfo.coverArtFilename)
+        let song = await BLITZ_RHYTHM_official.get("keyvaluepairs", songInfo.songFilename)
+        await BLITZ_RHYTHM_files.put("keyvaluepairs", songInfo.coverArtFilename.replace("" + songInfo.officialId, songInfo.id), cover)
+        await BLITZ_RHYTHM_files.put("keyvaluepairs", songInfo.songFilename.replace("" + songInfo.officialId, songInfo.id), song)
+        // 添加info记录
+        await BLITZ_RHYTHM_files.put("keyvaluepairs", songInfo.id + "_Info.dat", JSON.stringify({ _songFilename: "song.ogg" }))
+    }
+    // 保存数据
+    if (hasChanged) await BLITZ_RHYTHM.put("keyvaluepairs", "persist:songs", JSON.stringify(songsInfo))
+    BLITZ_RHYTHM.close()
+    BLITZ_RHYTHM_files.close()
+    BLITZ_RHYTHM_official.close()
+    return hasChanged
+}
+
+
+// ================================================================================ 入口 ================================================================================
+
+// 主入口
+(function () {
+    'use strict';
+
+    // 加载jszip
+    delete unsafeWindow.postMessage
+    Utils.dynamicLoadJs("https://cdn.bootcdn.net/ajax/libs/jszip/3.10.1/jszip.min.js").then(() => {
+        bindXhrListener()
+
+        let onRawBtnClick = () => {
+            searchFromBeatSaver = false
+        }
+        let onBsBtnClick = () => {
+            searchFromBeatSaver = true
+        }
+        let lastPageType = "other"
+        // 定时任务
+        setInterval(() => {
+            let url = window.location.href
+            let pageType = url.indexOf("/edit/") >= 0 ? "edit" : "other"
+            if (pageType === "edit") {
+                if (pageType != lastPageType) {
+                    // 更新歌曲信息
+                    updateDatabase().then((hasChanged) => {
+                        if (hasChanged) window.location.reload()
+                    }).catch(err => {
+                        console.log("更新数据失败：", err)
+                        alert("更新歌曲信息失败，请刷新再试！")
+                    })
+                }
+            } else {
+                CipherUtils.applySearchButton(onRawBtnClick, onBsBtnClick)
+            }
+            lastPageType = pageType
+        }, 1000)
+    })
+})();
+

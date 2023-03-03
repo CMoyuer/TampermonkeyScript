@@ -307,10 +307,7 @@ class XHRIntercept {
         let complete = () => { this.rawXhrSend.apply(self, args) }
         for (let i = 0; i < this.sendIntercepts.length; i++) {
             let flag = this.sendIntercepts[i](self, args, complete)
-            if (flag) {
-                console.log(self._url)
-                return
-            }
+            if (flag) return
         }
         complete()
     }

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         闪韵灵镜歌曲搜索扩展
 // @namespace    cipher-editor-extra-song-search
-// @version      1.0
+// @version      1.1
 // @description  通过BeatSaver方便添加歌曲
 // @author       如梦Nya
 // @license      MIT
@@ -111,48 +111,6 @@ class CipherUtils {
         }
         return new Blob([buffer], { type: "application/octet-stream" })
     }
-
-    /**
-     * 修复歌单布局
-     */
-    static fixSongListStyle() {
-        let songBox = $(".css-10szcx0")[0].parentNode
-        if ($(".css-1wfsuwr").length > 0) {
-            songBox.style["overflow-y"] = "hidden"
-            songBox.parentNode.style["margin-bottom"] = ""
-        } else {
-            songBox.style["overflow-y"] = "auto"
-            songBox.parentNode.style["margin-bottom"] = "44px"
-        }
-    }
-
-    /**
-     * 添加通过BeatSaver搜索歌曲的按钮
-     * @param {function | undefined} onRawBtnClick 点击原本搜索按钮事件
-     * @param {function | undefined} onBsBtnClick 点击BeatSaver按钮事件
-     * @returns 
-     */
-    static applySearchButton(onRawBtnClick, onBsBtnClick) {
-        let boxList = $(".css-1u8wof2") // 弹窗
-        if (boxList.length == 0) return
-        let searchBoxList = boxList.find(".css-70qvj9")
-        if (searchBoxList.length == 0 || searchBoxList[0].childNodes.length >= 3) return // 搜索栏元素数量
-
-        let rawSearchBtn = $(boxList[0]).find("button")[0] // 搜索按钮
-
-        // 添加一个按钮
-        let searchBtn = document.createElement("button")
-        searchBtn.className = rawSearchBtn.className
-        searchBtn.innerHTML = "BeatSaver"
-        $(rawSearchBtn.parentNode).append(searchBtn);
-
-        // 绑定事件
-        rawSearchBtn.onmousedown = onRawBtnClick
-        searchBtn.onmousedown = () => {
-            if (typeof onBsBtnClick == "function") onBsBtnClick()
-            $(rawSearchBtn).click()
-        }
-    }
 }
 
 /**
@@ -233,13 +191,15 @@ class BeatSaverUtils {
     /**
      * 从BeatSaver下载ogg文件
      * @param {number} zipUrl 歌曲压缩包链接
+     * @param {function} onprogress 进度回调
      * @returns {Promise}
      */
-    static downloadSongFile(zipUrl) {
+    static downloadSongFile(zipUrl, onprogress) {
         return new Promise(function (resolve, reject) {
             let xhr = new XMLHttpRequest()
             xhr.open('GET', zipUrl, true)
             xhr.responseType = "blob"
+            xhr.onprogress = onprogress
             xhr.onload = function () {
                 if (this.status !== 200) {
                     reject("http code:" + this.status)
@@ -274,6 +234,88 @@ class BeatSaverUtils {
     }
 }
 
+/**
+ * XMLHttpRequest请求拦截器
+ */
+class XHRIntercept {
+    /** @type {XHRIntercept} */
+    static _self
+
+    /**
+     * 初始化
+     * @returns {XHRIntercept}
+     */
+    constructor() {
+        if (XHRIntercept._self) return XHRIntercept._self
+        XHRIntercept._self = this
+
+        // 修改EventListener方法
+        let rawXhrAddEventListener = XMLHttpRequest.prototype.addEventListener
+        XMLHttpRequest.prototype.addEventListener = function (key, func) {
+            if (key === "progress") {
+                this.onprogress = func
+            } else {
+                rawXhrAddEventListener.apply(this, arguments)
+            }
+        }
+        let rawXhrRemoveEventListener = XMLHttpRequest.prototype.removeEventListener
+        XMLHttpRequest.prototype.removeEventListener = function (key, func) {
+            if (key === "progress") {
+                this.onprogress = undefined
+            } else {
+                rawXhrRemoveEventListener.apply(this, arguments)
+            }
+        }
+
+        // 修改send方法
+        /** @type {function[]} */
+        this.sendIntercepts = []
+        this.rawXhrSend = XMLHttpRequest.prototype.send
+        XMLHttpRequest.prototype.send = function () { XHRIntercept._self._xhrSend(this, arguments) }
+    }
+
+    /**
+     * 添加Send拦截器
+     * @param {function} func 
+     */
+    onXhrSend(func) {
+        if (this.sendIntercepts.indexOf(func) >= 0) return
+        this.sendIntercepts.push(func)
+    }
+
+    /**
+     * 删除Send拦截器
+     * @param {function | undefined} func 
+     */
+    offXhrSend(func) {
+        if (typeof func === "function") {
+            let index = this.sendIntercepts.indexOf(func)
+            if (index < 0) return
+            this.sendIntercepts.splice(index, 1)
+        } else {
+            this.sendIntercepts = []
+        }
+    }
+
+
+    /**
+     * 发送拦截器
+     * @param {XMLHttpRequest} self 
+     * @param {IArguments} args
+     */
+    _xhrSend(self, args) {
+        let complete = () => { this.rawXhrSend.apply(self, args) }
+        for (let i = 0; i < this.sendIntercepts.length; i++) {
+            let flag = this.sendIntercepts[i](self, args, complete)
+            if (flag) {
+                console.log(self._url)
+                return
+            }
+        }
+        complete()
+    }
+}
+
 // ================================================================================ 方法 ================================================================================
 
 // 是否通过BeatSaver搜索
@@ -281,101 +323,97 @@ let searchFromBeatSaver = false
 
 let songInfoMap = {}
 
-// 绑定XHR请求监听器
-function bindXhrListener() {
-    // 拦截XHR请求
-    const oldXMLHttpRequestSend = XMLHttpRequest.prototype.send;
-    XMLHttpRequest.prototype.send = function () {
-        let url = this._url
-        if (!url) {
-            oldXMLHttpRequestSend.apply(this, arguments);
-            return
-        }
-        let applyFlag = true
-        if (searchFromBeatSaver) {
-            if (url.startsWith("/song/staticList")) {
-                // 歌曲列表
-                let result = decodeURI(url).match(/songName=(\S*)&/)
-                let key = ""
-                if (result) key = result[1].replace("+", " ")
-                BeatSaverUtils.searchSongList(key, 2).then(res => {
-                    this.extraSongList = res.songList
-                    songInfoMap = res.songInfoMap
-                    oldXMLHttpRequestSend.apply(this, arguments);
-                }).catch(err => {
-                    alert("搜索歌曲失败！")
-                    console.error(err)
+// 绑定XHR拦截器
+function bindXHRIntercept() {
+    let xhrIntercept = new XHRIntercept()
+    /**
+     * @param {XMLHttpRequest} self
+     * @param {IArguments} args
+     * @param {function} complete
+     * @returns {boolean} 是否匹配
+     */
+    let onSend = function (self, args, complete) {
+        let url = self._url
+        if (!url || !searchFromBeatSaver) return
+
+        if (url.startsWith("/song/staticList")) {
+            // 获取歌曲列表
+            let result = decodeURI(url).match(/songName=(\S*)&/)
+            let key = ""
+            if (result) key = result[1].replace("+", " ")
+            BeatSaverUtils.searchSongList(key, 2).then(res => {
+                self.extraSongList = res.songList
+                songInfoMap = res.songInfoMap
+                complete()
+            }).catch(err => {
+                alert("搜索歌曲失败！")
+                console.error(err)
+                self.extraSongList = []
+                complete()
+            })
+
+            self.addEventListener("readystatechange", function () {
+                if (this.readyState !== this.DONE) return
+                const res = JSON.parse(this.responseText)
+                if (this.extraSongList) {
+                    res.data.data = this.extraSongList
+                    res.data.total = res.data.data.length
                     this.extraSongList = []
-                    oldXMLHttpRequestSend.apply(this, arguments);
-                })
-                applyFlag = false
-            } else if (url.startsWith("/beatsaver/")) {
+                }
+                Object.defineProperty(this, 'responseText', {
+                    writable: true
+                });
+                this.responseText = JSON.stringify(res)
+                setTimeout(fixSongListStyle, 100)
+            });
+            return true
+        } else if (url.startsWith("/beatsaver/")) {
+            let _onprogress = self.onprogress
+            self.onprogress = undefined
+            
+            // 从BeatSaver下载歌曲
+            let result = decodeURI(url).match(/\d{1,}/)
+            let id = parseInt(result[0])
+            BeatSaverUtils.downloadSongFile(songInfoMap[id].downloadURL, _onprogress).then(oggBlob => {
+                songInfoMap[id].ogg = oggBlob
+                complete()
+            }).catch(err => {
+                console.error(err)
+                self.onerror(err)
+                // alert("下载歌曲失败！")
+            })
+
+            self.addEventListener("readystatechange", function () {
+                if (this.readyState !== this.DONE) return
                 let result = decodeURI(url).match(/\d{1,}/)
                 let id = parseInt(result[0])
-                BeatSaverUtils.downloadSongFile(songInfoMap[id].downloadURL).then(oggBlob => {
-                    songInfoMap[id].ogg = oggBlob
-                    oldXMLHttpRequestSend.apply(this, arguments)
-                }).catch(err => {
-                    console.error(err)
-                    alert("下载歌曲失败！")
-                })
-                applyFlag = false
-            }
+                Object.defineProperty(this, 'response', {
+                    writable: true
+                });
+                this.response = songInfoMap[id].ogg
+            });
+            return true
+        } else if (url.startsWith("/song/ogg")) {
+            // 获取ogg文件下载链接
+            let result = decodeURI(url).match(/id=(\d*)/)
+            let id = parseInt(result[1])
+            if (id < 80000000000) return
+            self.addEventListener("readystatechange", function () {
+                if (this.readyState !== this.DONE) return
+                const res = JSON.parse(this.responseText)
+                res.code = 0
+                res.data = { link: "/beatsaver/" + id }
+                res.msg = "success"
+                Object.defineProperty(this, 'responseText', {
+                    writable: true
+                });
+                this.responseText = JSON.stringify(res)
+            });
+            complete()
+            return true
         }
-        if (applyFlag) oldXMLHttpRequestSend.apply(this, arguments)
     }
-
-    // 修改XHR结果
-    const originOpen = XMLHttpRequest.prototype.open;
-    XMLHttpRequest.prototype.open = function (_, url) {
-        if (searchFromBeatSaver) {
-            if (url.startsWith("/song/staticList")) {
-                // 搜索歌单
-                this.addEventListener("readystatechange", function () {
-                    if (this.readyState !== this.DONE) return
-                    const res = JSON.parse(this.responseText)
-                    if (this.extraSongList) {
-                        res.data.data = this.extraSongList
-                        res.data.total = res.data.data.length
-                        this.extraSongList = []
-                    }
-                    Object.defineProperty(this, 'responseText', {
-                        writable: true
-                    });
-                    this.responseText = JSON.stringify(res)
-                    setTimeout(CipherUtils.fixSongListStyle, 500)
-                });
-            } else if (url.startsWith("/song/ogg")) {
-                // 获取ogg文件下载链接
-                let result = decodeURI(url).match(/id=(\d*)/)
-                let id = parseInt(result[1])
-                if (id > 80000000000) {
-                    this.addEventListener("readystatechange", function () {
-                        if (this.readyState !== this.DONE) return
-                        const res = JSON.parse(this.responseText)
-                        res.code = 0
-                        res.data = { link: "/beatsaver/" + id }
-                        res.msg = "success"
-                        Object.defineProperty(this, 'responseText', {
-                            writable: true
-                        });
-                        this.responseText = JSON.stringify(res)
-                    });
-                }
-            } else if (url.startsWith("/beatsaver/")) {
-                this.addEventListener("readystatechange", function () {
-                    if (this.readyState !== this.DONE) return
-                    let result = decodeURI(url).match(/\d{1,}/)
-                    let id = parseInt(result[0])
-                    Object.defineProperty(this, 'response', {
-                        writable: true
-                    });
-                    this.response = songInfoMap[id].ogg
-                });
-            }
-        }
-        originOpen.apply(this, arguments);
-    };
+    xhrIntercept.onXhrSend(onSend)
 }
 
 /**
@@ -433,6 +471,47 @@ async function updateDatabase() {
 }
 
 
+/**
+ * 修复歌单布局
+ */
+function fixSongListStyle() {
+    let songBox = $(".css-10szcx0")[0].parentNode
+    if ($(".css-1wfsuwr").length > 0) {
+        songBox.style["overflow-y"] = "hidden"
+        songBox.parentNode.style["margin-bottom"] = ""
+    } else {
+        songBox.style["overflow-y"] = "auto"
+        songBox.parentNode.style["margin-bottom"] = "44px"
+    }
+}
+
+/**
+ * 添加通过BeatSaver搜索歌曲的按钮
+ */
+function applySearchButton() {
+    let boxList = $(".css-1u8wof2") // 弹窗
+    if (boxList.length == 0) return
+    let searchBoxList = boxList.find(".css-70qvj9")
+    if (searchBoxList.length == 0 || searchBoxList[0].childNodes.length >= 3) return // 搜索栏元素数量
+
+    let rawSearchBtn = $(boxList[0]).find("button")[0] // 搜索按钮
+
+    // 添加一个按钮
+    let searchBtn = document.createElement("button")
+    searchBtn.className = rawSearchBtn.className
+    searchBtn.innerHTML = "BeatSaver"
+    $(rawSearchBtn.parentNode).append(searchBtn);
+
+    // 绑定事件
+    rawSearchBtn.onmousedown = () => {
+        searchFromBeatSaver = false
+    }
+    searchBtn.onmousedown = () => {
+        searchFromBeatSaver = true
+        $(rawSearchBtn).click()
+    }
+}
+
 // ================================================================================ 入口 ================================================================================
 
 // 主入口
@@ -442,14 +521,8 @@ async function updateDatabase() {
     // 加载jszip
     delete unsafeWindow.postMessage
     Utils.dynamicLoadJs("https://cdn.bootcdn.net/ajax/libs/jszip/3.10.1/jszip.min.js").then(() => {
-        bindXhrListener()
+        bindXHRIntercept()
 
-        let onRawBtnClick = () => {
-            searchFromBeatSaver = false
-        }
-        let onBsBtnClick = () => {
-            searchFromBeatSaver = true
-        }
         let lastPageType = "other"
         // 定时任务
         setInterval(() => {
@@ -466,7 +539,7 @@ async function updateDatabase() {
                     })
                 }
             } else {
-                CipherUtils.applySearchButton(onRawBtnClick, onBsBtnClick)
+                applySearchButton()
             }
             lastPageType = pageType
         }, 1000)

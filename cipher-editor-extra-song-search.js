@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         闪韵灵镜歌曲搜索扩展
 // @namespace    cipher-editor-extra-song-search
-// @version      1.1
+// @version      1.2
 // @description  通过BeatSaver方便添加歌曲
 // @author       如梦Nya
 // @license      MIT
@@ -120,21 +120,43 @@ class Utils {
     /**
      * 动态添加Script
      * @param {string} url 脚本链接
+     * @param {string} scriptId 脚本唯一ID
      * @returns 
      */
-    static dynamicLoadJs(url) {
+    static dynamicLoadJs(url, scriptId) {
         return new Promise(function (resolve, reject) {
-            let head = unsafeWindow.document.getElementsByTagName('head')[0];
-            let script = unsafeWindow.document.createElement('script');
-            script.type = 'text/javascript';
-            script.src = url;
-            script.onload = script.onreadystatechange = function () {
-                if (!this.readyState || this.readyState === "loaded" || this.readyState === "complete") {
-                    resolve()
-                    script.onload = script.onreadystatechange = null;
+            // 判断之前有没有添加过
+            if (scriptId) {
+                let scripts = $("#" + scriptId)
+                if (scripts.length > 0) {
+                    let script = scripts[0]
+                    if (!script.readyState || script.readyState === "loaded" || script.readyState === "complete") {
+                        resolve()
+                    } else {
+                        script.onload = script.onreadystatechange = function () {
+                            if (!this.readyState || this.readyState === "loaded" || this.readyState === "complete") {
+                                resolve()
+                                script.onload = script.onreadystatechange = null
+                            }
+                        }
+                    }
+                    return
                 }
             }
-            head.appendChild(script);
+            // 没有就添加
+            {
+                let script = document.createElement('script')
+                script.type = 'text/javascript'
+                script.src = url
+                if (scriptId) script.id = scriptId
+                script.onload = script.onreadystatechange = function () {
+                    if (!this.readyState || this.readyState === "loaded" || this.readyState === "complete") {
+                        resolve()
+                        script.onload = script.onreadystatechange = null
+                    }
+                }
+                $("head")[0].appendChild(script)
+            }
         });
     }
 }
@@ -168,7 +190,7 @@ class BeatSaverUtils {
                     let artist = rawInfo.metadata.songAuthorName
                     let bpm = rawInfo.metadata.bpm
                     let cover = rawInfo.versions[0].coverURL
-                    let song_name = rawInfo.metadata.songName
+                    let song_name = "[" + rawInfo.id + "]" + rawInfo.metadata.songName
                     let id = 80000000000 + parseInt(rawInfo.id, 36)
                     songList.push({ artist, bpm, cover, song_name, id })
 
@@ -367,7 +389,7 @@ function bindXHRIntercept() {
         } else if (url.startsWith("/beatsaver/")) {
             let _onprogress = self.onprogress
             self.onprogress = undefined
-            
+
             // 从BeatSaver下载歌曲
             let result = decodeURI(url).match(/\d{1,}/)
             let id = parseInt(result[0])
@@ -377,7 +399,6 @@ function bindXHRIntercept() {
             }).catch(err => {
                 console.error(err)
                 self.onerror(err)
-                // alert("下载歌曲失败！")
             })
 
             self.addEventListener("readystatechange", function () {
@@ -472,7 +493,9 @@ async function updateDatabase() {
  * 修复歌单布局
  */
 function fixSongListStyle() {
-    let songBox = $(".css-10szcx0")[0].parentNode
+    let songListBox = $(".css-10szcx0")[0]
+    songListBox.style["grid-template-columns"] = "repeat(3, minmax(0px, 1fr))"
+    let songBox = songListBox.parentNode
     if ($(".css-1wfsuwr").length > 0) {
         songBox.style["overflow-y"] = "hidden"
         songBox.parentNode.style["margin-bottom"] = ""
@@ -480,6 +503,9 @@ function fixSongListStyle() {
         songBox.style["overflow-y"] = "auto"
         songBox.parentNode.style["margin-bottom"] = "44px"
     }
+    let itemBox = $(".css-bil4eh")
+    for (let index = 0; index < itemBox.length; index++)
+        itemBox[index].style.width = "230px"
 }
 
 /**
@@ -517,7 +543,7 @@ function applySearchButton() {
 
     // 加载jszip
     delete unsafeWindow.postMessage
-    Utils.dynamicLoadJs("https://cdn.bootcdn.net/ajax/libs/jszip/3.10.1/jszip.min.js").then(() => {
+    Utils.dynamicLoadJs("https://cdn.bootcdn.net/ajax/libs/jszip/3.10.1/jszip.min.js", "jszip").then(() => {
         bindXHRIntercept()
 
         let lastPageType = "other"
@@ -541,5 +567,5 @@ function applySearchButton() {
             lastPageType = pageType
         }, 1000)
     })
-})();
+})()
 

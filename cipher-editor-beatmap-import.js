@@ -7,7 +7,7 @@
 // @license      MIT
 // @run-at       document-start
 // @grant        unsafeWindow
-// @match        https://cipher-editor-cn.picovr.com/edit/*
+// @match        https://cipher-editor-cn.picovr.com/*
 // @icon         https://cipher-editor-cn.picovr.com/assets/logo-eabc5412.png
 // @require      https://code.jquery.com/jquery-3.6.0.min.js
 // ==/UserScript==

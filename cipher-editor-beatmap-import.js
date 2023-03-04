@@ -248,7 +248,6 @@ async function importFromBeatSaver() {
     try {
         // 获取当前谱面信息
         let nowBeatmapInfo = CipherUtils.getNowBeatmapInfo()
-        console.log(nowBeatmapInfo)
         let datKey = nowBeatmapInfo.id + "_" + nowBeatmapInfo.difficulty + "_Ring.dat"
         let datStr = await BLITZ_RHYTHM_files.get("keyvaluepairs", datKey)
         let datInfo = JSON.parse(datStr)
@@ -294,13 +293,11 @@ async function importFromBeatSaver() {
                 }
                 alert("请从以下难度中选择一个：" + promptTip)
             }
-            tarDifficulty = defaultDifficulty
         }
         // 开始导入
         let changeInfo = analyseBeatMapInfo(beatmapInfo[tarDifficulty])
         datInfo._notes = changeInfo._notes
         await BLITZ_RHYTHM_files.put("keyvaluepairs", datKey, JSON.stringify(datInfo))
-        BLITZ_RHYTHM_files.close()
         window.location.reload()
     } catch (error) {
         throw error
@@ -315,7 +312,6 @@ async function importFromBeatSaver() {
  * @param {JSON} info 
  */
 function analyseBeatMapInfo(rawInfo) {
-    console.log(rawInfo)
     let info = {
         _notes: [], // 音符
     }
@@ -345,7 +341,6 @@ function analyseBeatMapInfo(rawInfo) {
     } else {
         alert("暂不支持该谱面的版本（" + beatmapVersion + "），请换个链接再试！")
     }
-    console.log(info)
     return info
 }
 

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         闪韵灵镜铺面导入
 // @namespace    cipher-editor-beatmap-import
-// @version      1.0.2
+// @version      1.0.3
 // @description  通过BeatSaver导入铺面
 // @author       如梦Nya
 // @license      MIT
@@ -162,17 +162,39 @@ class BeatSaverUtils {
     }
 
     /**
-     * 从压缩包中提取出曲谱配置
-     * @param {blob} zipBlob 
+     * 从压缩包中提取曲谱难度文件
+     * @param {Blob} zipBlob
      * @returns 
      */
-    static async getBeatmapInfoFromZip(zipBlob) {
+    static async getBeatmapInfo(zipBlob) {
         let zip = await unsafeWindow.JSZip.loadAsync(zipBlob)
-        let beatmapInfo = {}
+        // 谱面信息
+        let infoFile
         for (let fileName in zip.files) {
-            if (!fileName.endsWith("Standard.dat")) continue
-            let str = await zip.file(fileName).async("string")
-            beatmapInfo[fileName.replace("Standard.dat", "")] = JSON.parse(str)
+            if (fileName.toLowerCase() !== "info.dat") continue
+            infoFile = zip.files[fileName]
+            break
+        }
+        let rawBeatmapInfo = JSON.parse(await infoFile.async("string"))
+        // 难度列表
+        let difficultyBeatmaps
+        let diffBeatmapSets = rawBeatmapInfo._difficultyBeatmapSets
+        for (let a in diffBeatmapSets) {
+            let info = diffBeatmapSets[a]
+            if (info["_beatmapCharacteristicName"] !== "Standard") continue
+            difficultyBeatmaps = info._difficultyBeatmaps
+            break
+        }
+        // 难度对应文件名
+        let beatmapInfo = {
+            version: rawBeatmapInfo._version,
+            difficulties: [],
+            files: {}
+        }
+        for (let index in difficultyBeatmaps) {
+            let difficultyInfo = difficultyBeatmaps[index]
+            beatmapInfo.difficulties.push(difficultyInfo._difficulty)
+            beatmapInfo.files[difficultyInfo._difficulty] = zip.files[difficultyInfo._beatmapFilename]
         }
         return beatmapInfo
     }
@@ -268,34 +290,33 @@ async function importFromBeatSaver() {
             }
             let downloadUrl = await BeatSaverUtils.getDownloadUrl(result[1])
             let zipBlob = await BeatSaverUtils.downloadSongFile(downloadUrl)
-            beatmapInfo = await BeatSaverUtils.getBeatmapInfoFromZip(zipBlob)
+            beatmapInfo = await BeatSaverUtils.getBeatmapInfo(zipBlob)
         }
         // 选择导入难度
         let tarDifficulty = ""
         {
             let defaultDifficulty = ""
             let promptTip = ""
-            let difficultyList = []
-            for (let diff in beatmapInfo) {
-                difficultyList.push(diff)
+            for (let index in beatmapInfo.difficulties) {
                 if (!defaultDifficulty) {
-                    defaultDifficulty = diff
+                    defaultDifficulty = beatmapInfo.difficulties[index]
                 } else {
                     promptTip += "、"
                 }
-                promptTip += diff
+                promptTip += beatmapInfo.difficulties[index]
             }
             while (true) {
                 tarDifficulty = prompt("请输入要导入的难度（注意大小写）：" + promptTip, defaultDifficulty)
                 if (!tarDifficulty) return
-                if (difficultyList.indexOf(tarDifficulty) >= 0) {
+                if (beatmapInfo.difficulties.indexOf(tarDifficulty) >= 0) {
                     break
                 }
                 alert("请从以下难度中选择一个：" + promptTip)
             }
         }
         // 开始导入
-        let changeInfo = analyseBeatMapInfo(beatmapInfo[tarDifficulty])
+        let beatmapInfoStr = await beatmapInfo.files[tarDifficulty].async("string")
+        let changeInfo = convertBeatMapInfo(beatmapInfo.version, JSON.parse(beatmapInfoStr))
         datInfo._notes = changeInfo._notes
         await BLITZ_RHYTHM_files.put("keyvaluepairs", datKey, JSON.stringify(datInfo))
         window.location.reload()
@@ -308,15 +329,15 @@ async function importFromBeatSaver() {
 
 
 /**
- * 处理BeatSaber谱面信息
+ * 转换BeatSaber谱面信息
+ * @param {string} version
  * @param {JSON} info 
  */
-function analyseBeatMapInfo(rawInfo) {
+function convertBeatMapInfo(version, rawInfo) {
     let info = {
         _notes: [], // 音符
     }
-    let beatmapVersion = rawInfo._version
-    if (beatmapVersion.startsWith("3.")) {
+    if (version.startsWith("3.")) {
         for (let index in rawInfo.colorNotes) {
             let rawNote = rawInfo.colorNotes[index]
             info._notes.push({
@@ -327,7 +348,7 @@ function analyseBeatMapInfo(rawInfo) {
                 _cutDirection: 8,
             })
         }
-    } else if (beatmapVersion.startsWith("2.")) {
+    } else if (version.startsWith("2.")) {
         for (let index in rawInfo._notes) {
             let rawNote = rawInfo._notes[index]
             info._notes.push({
@@ -339,7 +360,7 @@ function analyseBeatMapInfo(rawInfo) {
             })
         }
     } else {
-        alert("暂不支持该谱面的版本（" + beatmapVersion + "），请换个链接再试！")
+        alert("暂不支持该谱面的版本（" + version + "），请换个链接再试！")
     }
     return info
 }

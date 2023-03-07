@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         闪韵灵镜铺面导入
 // @namespace    cipher-editor-beatmap-import
-// @version      1.0.3
+// @version      1.1
 // @description  通过BeatSaver导入铺面
 // @author       如梦Nya
 // @license      MIT
@@ -113,6 +113,13 @@ class CipherUtils {
         let difficulty = matchDifficulty ? matchDifficulty[1] : ""
         return { id, difficulty, beatsaverId }
     }
+
+    /**
+     * 关闭编辑器顶部菜单
+     */
+    static closeEditorTopMenu() {
+        $(".css-7vvr1").click()
+    }
 }
 
 
@@ -127,37 +134,16 @@ class BeatSaverUtils {
      */
     static getDownloadUrl(id) {
         return new Promise(function (resolve, reject) {
-            $.get("https://beatsaver.com/api/maps/id/" + id, (data, status) => {
-                if (status != "success") {
-                    reject(status)
-                    return
+            $.ajax({
+                url: "https://beatsaver.com/api/maps/id/" + id,
+                type: "get",
+                success: (data) => {
+                    resolve(data.versions[0].downloadURL)
+                },
+                error: (req, status, err) => {
+                    reject(req.status + " " + req.responseJSON.error)
                 }
-                resolve(data.versions[0].downloadURL)
             })
-        })
-    }
-
-    /**
-     * 从BeatSaver下载ogg文件
-     * @param {number} zipUrl 歌曲压缩包链接
-     * @param {function | undefined} onprogress 进度回调
-     * @returns {Promise}
-     */
-    static downloadSongFile(zipUrl, onprogress) {
-        return new Promise(function (resolve, reject) {
-            let xhr = new XMLHttpRequest()
-            xhr.open('GET', zipUrl, true)
-            xhr.responseType = "blob"
-            xhr.onprogress = onprogress
-            xhr.onload = function () {
-                if (this.status !== 200) {
-                    reject("http code:" + this.status)
-                    return
-                }
-                resolve(new Blob([this.response], { type: "application/zip" }))
-            }
-            xhr.onerror = reject
-            xhr.send()
         })
     }
 
@@ -193,8 +179,11 @@ class BeatSaverUtils {
         }
         for (let index in difficultyBeatmaps) {
             let difficultyInfo = difficultyBeatmaps[index]
-            beatmapInfo.difficulties.push(difficultyInfo._difficulty)
-            beatmapInfo.files[difficultyInfo._difficulty] = zip.files[difficultyInfo._beatmapFilename]
+            let diffName = difficultyInfo._difficulty
+            if (difficultyInfo._customData && difficultyInfo._customData._difficultyLabel)
+                diffName = difficultyInfo._customData._difficultyLabel
+            beatmapInfo.difficulties.push(diffName)
+            beatmapInfo.files[diffName] = zip.files[difficultyInfo._beatmapFilename]
         }
         return beatmapInfo
     }
@@ -246,6 +235,29 @@ class Utils {
             }
         });
     }
+    /**
+     * 下载压缩包文件
+     * @param {number} zipUrl 歌曲压缩包链接
+     * @param {function | undefined} onprogress 进度回调
+     * @returns {Promise}
+     */
+    static downloadZipFile(zipUrl, onprogress) {
+        return new Promise(function (resolve, reject) {
+            let xhr = new XMLHttpRequest()
+            xhr.open('GET', zipUrl, true)
+            xhr.responseType = "blob"
+            xhr.onprogress = onprogress
+            xhr.onload = function () {
+                if (this.status !== 200) {
+                    reject("http code:" + this.status)
+                    return
+                }
+                resolve(new Blob([this.response], { type: "application/zip" }))
+            }
+            xhr.onerror = reject
+            xhr.send()
+        })
+    }
 }
 
 // ================================================================================ 方法 ================================================================================
@@ -289,39 +301,45 @@ async function importFromBeatSaver() {
                 return
             }
             let downloadUrl = await BeatSaverUtils.getDownloadUrl(result[1])
-            let zipBlob = await BeatSaverUtils.downloadSongFile(downloadUrl)
+            let zipBlob = await Utils.downloadZipFile(downloadUrl)
             beatmapInfo = await BeatSaverUtils.getBeatmapInfo(zipBlob)
+            if (beatmapInfo.difficulties.length == 0) {
+                alert("该谱面找不到可用的难度")
+                return
+            }
         }
         // 选择导入难度
-        let tarDifficulty = ""
+        let tarDifficulty = "1"
         {
-            let defaultDifficulty = ""
+            let defaultDifficulty = "1"
             let promptTip = ""
             for (let index in beatmapInfo.difficulties) {
-                if (!defaultDifficulty) {
-                    defaultDifficulty = beatmapInfo.difficulties[index]
-                } else {
-                    promptTip += "、"
-                }
+                if (index > 0) promptTip += "、"
                 promptTip += beatmapInfo.difficulties[index]
             }
             while (true) {
-                tarDifficulty = prompt("请输入要导入的难度（注意大小写）：" + promptTip, defaultDifficulty)
-                if (!tarDifficulty) return
-                if (beatmapInfo.difficulties.indexOf(tarDifficulty) >= 0) {
-                    break
+                tarDifficulty = prompt("请问要导入第几个难度（数字）：" + promptTip, defaultDifficulty)
+                if (!/^\d$/.test(tarDifficulty)) {
+                    alert("请输入准确的序号！")
+                    continue
                 }
-                alert("请从以下难度中选择一个：" + promptTip)
+                tarDifficulty = parseInt(tarDifficulty)
+                if (tarDifficulty > 0 && tarDifficulty <= beatmapInfo.difficulties.length) break
+                alert("请输入准确的序号！")
             }
         }
         // 开始导入
-        let beatmapInfoStr = await beatmapInfo.files[tarDifficulty].async("string")
+        let beatmapInfoStr = await beatmapInfo.files[beatmapInfo.difficulties[tarDifficulty - 1]].async("string")
         let changeInfo = convertBeatMapInfo(beatmapInfo.version, JSON.parse(beatmapInfoStr))
         datInfo._notes = changeInfo._notes
+        datInfo._obstacles = changeInfo._obstacles
         await BLITZ_RHYTHM_files.put("keyvaluepairs", datKey, JSON.stringify(datInfo))
+        // 导入完成
+        CipherUtils.closeEditorTopMenu()
         window.location.reload()
-    } catch (error) {
-        throw error
+    } catch (err) {
+        console.error(err)
+        alert("出错啦：" + err)
     } finally {
         BLITZ_RHYTHM_files.close()
     }
@@ -336,8 +354,10 @@ async function importFromBeatSaver() {
 function convertBeatMapInfo(version, rawInfo) {
     let info = {
         _notes: [], // 音符
+        _obstacles: [], // 墙
     }
     if (version.startsWith("3.")) {
+        // 音符
         for (let index in rawInfo.colorNotes) {
             let rawNote = rawInfo.colorNotes[index]
             info._notes.push({
@@ -349,6 +369,7 @@ function convertBeatMapInfo(version, rawInfo) {
             })
         }
     } else if (version.startsWith("2.")) {
+        // 音符
         for (let index in rawInfo._notes) {
             let rawNote = rawInfo._notes[index]
             info._notes.push({
@@ -359,9 +380,43 @@ function convertBeatMapInfo(version, rawInfo) {
                 _cutDirection: 8,
             })
         }
+        // 墙
+        for (let index in rawInfo._obstacles) {
+            let rawNote = rawInfo._obstacles[index]
+            info._obstacles.push({
+                _time: rawNote._time,
+                _duration: rawNote._duration,
+                _type: rawNote._type,
+                _lineIndex: rawNote._lineIndex,
+                _width: rawNote._width,
+            })
+        }
     } else {
-        alert("暂不支持该谱面的版本（" + version + "），请换个链接再试！")
+        throw ("暂不支持该谱面的版本（" + version + "），请换个链接再试！")
     }
+    // 因Cipher不支持长墙，所以转为多面墙
+    let newObstacles = []
+    for (let index in info._obstacles) {
+        let baseInfo = info._obstacles[index]
+        let startTime = baseInfo._time
+        let endTime = baseInfo._time + baseInfo._duration
+        let duration = baseInfo._duration
+        baseInfo._duration = 0.04
+        // 头
+        baseInfo._time = startTime
+        newObstacles.push(JSON.parse(JSON.stringify(baseInfo)))
+        // 中间
+        let count = Math.floor(duration / 1) - 2  // 至少间隔1秒
+        let dtime = ((endTime - 0.04) - (startTime + 0.04)) / count
+        for (let i = 0; i < count; i++) {
+            baseInfo._time += dtime
+            newObstacles.push(JSON.parse(JSON.stringify(baseInfo)))
+        }
+        // 尾
+        baseInfo._time = endTime - 0.04
+        newObstacles.push(JSON.parse(JSON.stringify(baseInfo)))
+    }
+    info._obstacles = newObstacles
     return info
 }
 

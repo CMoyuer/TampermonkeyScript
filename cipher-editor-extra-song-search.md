@@ -10,3 +10,4 @@
  - 通过BeatSaver搜索歌曲
  - 下载BeatSaver已上传的ogg歌曲文件
  - 自动补充铺面信息，如封面、作曲者等
+ - 双击BeatSaver信息栏，可预览BeatSaber中的效果

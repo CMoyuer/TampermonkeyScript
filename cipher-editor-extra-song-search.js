@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         闪韵灵镜歌曲搜索扩展
 // @namespace    cipher-editor-extra-song-search
-// @version      1.2
+// @version      1.3
 // @description  通过BeatSaver方便添加歌曲
 // @author       如梦Nya
 // @license      MIT
@@ -383,7 +383,10 @@ function bindXHRIntercept() {
                     writable: true
                 });
                 this.responseText = JSON.stringify(res)
-                setTimeout(fixSongListStyle, 100)
+                setTimeout(() => {
+                    fixSongListStyle()
+                    addPreviewFunc()
+                }, 200)
             });
             return true
         } else if (url.startsWith("/beatsaver/")) {
@@ -509,6 +512,24 @@ function fixSongListStyle() {
 }
 
 /**
+ * 在歌曲Card中添加双击预览功能
+ */
+function addPreviewFunc() {
+    let searchBox = $(".css-1d92frk")
+    searchBox.after("<div style='text-align: center;color:gray;padding-bottom:10px;' id='preview_tip'>双击歌曲可预览曲谱</div>")
+    let infoViewList = $(".css-bil4eh")
+    for (let index in infoViewList) {
+        infoViewList[index].ondblclick = () => {
+            let name = $(infoViewList[index]).find(".css-1y1rcqj")[0].innerHTML
+            let result = name.match(/^\[(\w*)\]/)
+            if (!result) return
+            let previewUrl = "https://skystudioapps.com/bs-viewer/?id=" + result[1]
+            window.open(previewUrl)
+        }
+    }
+}
+
+/**
  * 添加通过BeatSaver搜索歌曲的按钮
  */
 function applySearchButton() {
@@ -528,6 +549,7 @@ function applySearchButton() {
     // 绑定事件
     rawSearchBtn.onmousedown = () => {
         searchFromBeatSaver = false
+        $("#preview_tip").remove()
     }
     searchBtn.onmousedown = () => {
         searchFromBeatSaver = true

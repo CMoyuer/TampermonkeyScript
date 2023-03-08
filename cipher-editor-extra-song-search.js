@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         闪韵灵镜歌曲搜索扩展
 // @namespace    cipher-editor-extra-song-search
-// @version      1.3
+// @version      1.3.1
 // @description  通过BeatSaver方便添加歌曲
 // @author       如梦Nya
 // @license      MIT
@@ -577,7 +577,7 @@ function applySearchButton() {
                 if (pageType != lastPageType) {
                     // 更新歌曲信息
                     updateDatabase().then((hasChanged) => {
-                        if (hasChanged) window.location.reload()
+                        if (hasChanged) setTimeout(() => { window.location.reload() }, 1000)
                     }).catch(err => {
                         console.log("更新数据失败：", err)
                         alert("更新歌曲信息失败，请刷新再试！")

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         闪韵灵镜铺面导入
 // @namespace    cipher-editor-beatmap-import
-// @version      1.1
+// @version      1.1.1
 // @description  通过BeatSaver导入铺面
 // @author       如梦Nya
 // @license      MIT
@@ -335,8 +335,10 @@ async function importFromBeatSaver() {
         datInfo._obstacles = changeInfo._obstacles
         await BLITZ_RHYTHM_files.put("keyvaluepairs", datKey, JSON.stringify(datInfo))
         // 导入完成
-        CipherUtils.closeEditorTopMenu()
-        window.location.reload()
+        setTimeout(() => {
+            CipherUtils.closeEditorTopMenu()
+            window.location.reload()
+        }, 1000)
     } catch (err) {
         console.error(err)
         alert("出错啦：" + err)

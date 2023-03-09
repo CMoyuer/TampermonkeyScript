@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         闪韵灵镜铺面导入
 // @namespace    cipher-editor-beatmap-import
-// @version      1.1.1
+// @version      1.1.2
 // @description  通过BeatSaver导入铺面
 // @author       如梦Nya
 // @license      MIT
@@ -119,6 +119,20 @@ class CipherUtils {
      */
     static closeEditorTopMenu() {
         $(".css-7vvr1").click()
+    }
+
+    /**
+     * 显示Loading
+     */
+    static showLoading() {
+        $("main").append('<div class="css-c81162"><span class="MuiCircularProgress-root MuiCircularProgress-indeterminate MuiCircularProgress-colorPrimary css-11gk5wa" role="progressbar" style="width: 40px; height: 40px;"><svg class="MuiCircularProgress-svg css-13o7eu2" viewBox="22 22 44 44"><circle class="MuiCircularProgress-circle MuiCircularProgress-circleIndeterminate css-14891ef" cx="44" cy="44" r="20.2" fill="none" stroke-width="3.6"></circle></svg></span></div>')
+    }
+
+    /**
+     * 隐藏Loading
+     */
+    static hideLoading() {
+        $(".css-c81162").remove()
     }
 }
 
@@ -300,16 +314,18 @@ async function importFromBeatSaver() {
                 alert("链接格式错误！")
                 return
             }
+            CipherUtils.showLoading()
             let downloadUrl = await BeatSaverUtils.getDownloadUrl(result[1])
             let zipBlob = await Utils.downloadZipFile(downloadUrl)
             beatmapInfo = await BeatSaverUtils.getBeatmapInfo(zipBlob)
+            CipherUtils.hideLoading()
             if (beatmapInfo.difficulties.length == 0) {
                 alert("该谱面找不到可用的难度")
                 return
             }
         }
         // 选择导入难度
-        let tarDifficulty = "1"
+        let tarDifficulty = 1
         {
             let defaultDifficulty = "1"
             let promptTip = ""
@@ -317,18 +333,21 @@ async function importFromBeatSaver() {
                 if (index > 0) promptTip += "、"
                 promptTip += beatmapInfo.difficulties[index]
             }
+            let difficulty = ""
             while (true) {
-                tarDifficulty = prompt("请问要导入第几个难度（数字）：" + promptTip, defaultDifficulty)
-                if (!/^\d$/.test(tarDifficulty)) {
+                difficulty = prompt("请问要导入第几个难度（数字）：" + promptTip, defaultDifficulty)
+                if (!difficulty) return // Cancel
+                if (/^\d$/.test(difficulty)) {
+                    tarDifficulty = parseInt(difficulty)
+                    if (tarDifficulty > 0 && tarDifficulty <= beatmapInfo.difficulties.length) break
                     alert("请输入准确的序号！")
-                    continue
+                } else {
+                    alert("请输入准确的序号！")
                 }
-                tarDifficulty = parseInt(tarDifficulty)
-                if (tarDifficulty > 0 && tarDifficulty <= beatmapInfo.difficulties.length) break
-                alert("请输入准确的序号！")
             }
         }
         // 开始导入
+        CipherUtils.showLoading()
         let beatmapInfoStr = await beatmapInfo.files[beatmapInfo.difficulties[tarDifficulty - 1]].async("string")
         let changeInfo = convertBeatMapInfo(beatmapInfo.version, JSON.parse(beatmapInfoStr))
         datInfo._notes = changeInfo._notes
@@ -342,6 +361,7 @@ async function importFromBeatSaver() {
     } catch (err) {
         console.error(err)
         alert("出错啦：" + err)
+        CipherUtils.hideLoading()
     } finally {
         BLITZ_RHYTHM_files.close()
     }

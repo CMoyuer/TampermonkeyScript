@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         闪韵灵镜铺面导入
 // @namespace    cipher-editor-beatmap-import
-// @version      1.1.2
+// @version      1.1.3
 // @description  通过BeatSaver导入铺面
 // @author       如梦Nya
 // @license      MIT
@@ -286,7 +286,7 @@ function addImportButton() {
     if (btnsBoxList.length == 0) return
     let btnImport = $(btnsBoxList[0].childNodes[0]).clone()[0]
     btnImport.id = "importBeatmap"
-    btnImport.innerHTML = "从BeatSaver导入节拍"
+    btnImport.innerHTML = "从BeatSaver导入谱面"
     btnImport.onclick = importFromBeatSaver
     btnsBoxList[0].prepend(btnImport)
 }
@@ -448,7 +448,7 @@ function convertBeatMapInfo(version, rawInfo) {
 (function () {
     'use strict'
 
-    Utils.dynamicLoadJs("https://cdn.bootcdn.net/ajax/libs/jszip/3.10.1/jszip.min.js", "jszip").then(() => {
+    Utils.dynamicLoadJs("https://cmoyuer.gitee.io/my-resources/js/jszip.min.js", "jszip").then(() => {
         setInterval(() => {
             addImportButton()
         }, 1000)

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         闪韵灵镜歌曲搜索扩展
 // @namespace    cipher-editor-extra-song-search
-// @version      1.3.1
+// @version      1.3.2
 // @description  通过BeatSaver方便添加歌曲
 // @author       如梦Nya
 // @license      MIT
@@ -564,8 +564,7 @@ function applySearchButton() {
     'use strict';
 
     // 加载jszip
-    delete unsafeWindow.postMessage
-    Utils.dynamicLoadJs("https://cdn.bootcdn.net/ajax/libs/jszip/3.10.1/jszip.min.js", "jszip").then(() => {
+    Utils.dynamicLoadJs("https://cmoyuer.gitee.io/my-resources/js/jszip.min.js", "jszip").then(() => {
         bindXHRIntercept()
 
         let lastPageType = "other"

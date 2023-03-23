@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         闪韵灵镜铺面导入
 // @namespace    cipher-editor-beatmap-import
-// @version      1.1.3
+// @version      1.2.0
 // @description  通过BeatSaver导入铺面
 // @author       如梦Nya
 // @license      MIT
@@ -284,46 +284,102 @@ function addImportButton() {
     if ($("#importBeatmap").length > 0) return
     let btnsBoxList = $(".css-4e93fo")
     if (btnsBoxList.length == 0) return
-    let btnImport = $(btnsBoxList[0].childNodes[0]).clone()[0]
-    btnImport.id = "importBeatmap"
-    btnImport.innerHTML = "从BeatSaver导入谱面"
-    btnImport.onclick = importFromBeatSaver
-    btnsBoxList[0].prepend(btnImport)
+    // 按键组
+    let div = document.createElement("div")
+    div.style["display"] = "flex"
+    // 按钮模板
+    let btnTemp = $(btnsBoxList[0].childNodes[0])
+    // 按钮1
+    let btnImportBs = btnTemp.clone()[0]
+    btnImportBs.id = "importBeatmap"
+    btnImportBs.innerHTML = "导入谱面 BeatSaver链接"
+    btnImportBs.onclick = importFromBeatSaver
+    btnImportBs.style["font-size"] = "13px"
+    div.append(btnImportBs)
+    // 按钮2
+    let btnImportZip = btnTemp.clone()[0]
+    btnImportZip.id = "importBeatmap"
+    btnImportZip.innerHTML = "导入谱面 BeatSaber压缩包"
+    btnImportZip.onclick = importFromBeatmap
+    btnImportZip.style["margin-left"] = "10px"
+    btnImportZip.style["font-size"] = "13px"
+    div.append(btnImportZip)
+    // 添加
+    btnsBoxList[0].prepend(div)
 }
 
 async function importFromBeatSaver() {
-    let BLITZ_RHYTHM_files = await new WebDB().open("BLITZ_RHYTHM-files")
     try {
         // 获取当前谱面信息
         let nowBeatmapInfo = CipherUtils.getNowBeatmapInfo()
+
+        // 获取谱面信息
+        let url = prompt('请输入BeatSaver铺面链接', "https://beatsaver.com/maps/" + nowBeatmapInfo.beatsaverId)
+        if (!url) return
+        let result = url.match(/^https:\/\/beatsaver.com\/maps\/(\S*)$/)
+        if (!result) {
+            alert("链接格式错误！")
+            return
+        }
+        CipherUtils.showLoading()
+        let downloadUrl = await BeatSaverUtils.getDownloadUrl(result[1])
+        let zipBlob = await Utils.downloadZipFile(downloadUrl)
+        await importBeatmap(zipBlob, nowBeatmapInfo)
+    } catch (err) {
+        console.error(err)
+        alert("出错啦：" + err)
+        CipherUtils.hideLoading()
+    }
+}
+
+
+function importFromBeatmap() {
+    try {
+        // 创建上传按钮
+        let fileSelect = document.createElement('input')
+        fileSelect.type = 'file'
+        fileSelect.style.display = "none"
+
+        fileSelect.accept = ".zip,.rar"
+        fileSelect.addEventListener("change", (e) => {
+            let files = e.target.files
+            if (files == 0) return
+            CipherUtils.showLoading()
+            let file = files[0]
+            // 获取当前谱面信息
+            let nowBeatmapInfo = CipherUtils.getNowBeatmapInfo()
+            importBeatmap(new Blob([file]), nowBeatmapInfo).catch(err => {
+                CipherUtils.hideLoading()
+                console.error(err)
+                alert("出错啦：" + err)
+            })
+        })
+        // 点击按钮
+        document.body.append(fileSelect)
+        fileSelect.click()
+        fileSelect.remove()
+    } catch (err) {
+        alert("出错啦：" + err)
+    }
+}
+
+/**
+ * 从BeatSaber谱面压缩包导入信息
+ * @param {Blob} zipBlob
+ * @param {{id:string, difficulty:string, beatsaverId:string}} nowBeatmapInfo
+ */
+async function importBeatmap(zipBlob, nowBeatmapInfo) {
+    let BLITZ_RHYTHM_files = await new WebDB().open("BLITZ_RHYTHM-files")
+    try {
+        // 获取当前谱面信息
         let datKey = nowBeatmapInfo.id + "_" + nowBeatmapInfo.difficulty + "_Ring.dat"
         let datStr = await BLITZ_RHYTHM_files.get("keyvaluepairs", datKey)
         let datInfo = JSON.parse(datStr)
-        if (datInfo._version !== "2.3.0") {
-            alert("插件不支持该谱面版本！可尝试重新创建谱面")
-            return
-        }
-
-        // 获取谱面信息
-        let beatmapInfo = {}
-        {
-            let url = prompt('请输入BeatSaver铺面链接', "https://beatsaver.com/maps/" + nowBeatmapInfo.beatsaverId)
-            if (!url) return
-            let result = url.match(/^https:\/\/beatsaver.com\/maps\/(\S*)$/)
-            if (!result) {
-                alert("链接格式错误！")
-                return
-            }
-            CipherUtils.showLoading()
-            let downloadUrl = await BeatSaverUtils.getDownloadUrl(result[1])
-            let zipBlob = await Utils.downloadZipFile(downloadUrl)
-            beatmapInfo = await BeatSaverUtils.getBeatmapInfo(zipBlob)
-            CipherUtils.hideLoading()
-            if (beatmapInfo.difficulties.length == 0) {
-                alert("该谱面找不到可用的难度")
-                return
-            }
-        }
+        if (datInfo._version !== "2.3.0")
+            throw "插件不支持该谱面版本！可尝试重新创建谱面"
+        let beatmapInfo = await BeatSaverUtils.getBeatmapInfo(zipBlob)
+        if (beatmapInfo.difficulties.length == 0)
+            throw "该谱面找不到可用的难度"
         // 选择导入难度
         let tarDifficulty = 1
         {
@@ -336,7 +392,11 @@ async function importFromBeatSaver() {
             let difficulty = ""
             while (true) {
                 difficulty = prompt("请问要导入第几个难度（数字）：" + promptTip, defaultDifficulty)
-                if (!difficulty) return // Cancel
+                if (!difficulty) {
+                    // Cancel
+                    CipherUtils.hideLoading()
+                    return
+                }
                 if (/^\d$/.test(difficulty)) {
                     tarDifficulty = parseInt(difficulty)
                     if (tarDifficulty > 0 && tarDifficulty <= beatmapInfo.difficulties.length) break
@@ -347,7 +407,6 @@ async function importFromBeatSaver() {
             }
         }
         // 开始导入
-        CipherUtils.showLoading()
         let beatmapInfoStr = await beatmapInfo.files[beatmapInfo.difficulties[tarDifficulty - 1]].async("string")
         let changeInfo = convertBeatMapInfo(beatmapInfo.version, JSON.parse(beatmapInfoStr))
         datInfo._notes = changeInfo._notes
@@ -358,15 +417,12 @@ async function importFromBeatSaver() {
             CipherUtils.closeEditorTopMenu()
             window.location.reload()
         }, 1000)
-    } catch (err) {
-        console.error(err)
-        alert("出错啦：" + err)
-        CipherUtils.hideLoading()
+    } catch (error) {
+        throw error
     } finally {
         BLITZ_RHYTHM_files.close()
     }
 }
-
 
 /**
  * 转换BeatSaber谱面信息

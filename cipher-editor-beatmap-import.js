@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         闪韵灵镜铺面导入
 // @namespace    cipher-editor-beatmap-import
-// @version      1.2.0
+// @version      1.2.1
 // @description  通过BeatSaver导入铺面
 // @author       如梦Nya
 // @license      MIT
@@ -175,6 +175,7 @@ class BeatSaverUtils {
             infoFile = zip.files[fileName]
             break
         }
+        if (!infoFile) throw "请检查压缩包中是否包含info.dat文件"
         let rawBeatmapInfo = JSON.parse(await infoFile.async("string"))
         // 难度列表
         let difficultyBeatmaps
@@ -301,7 +302,7 @@ function addImportButton() {
     btnImportZip.id = "importBeatmap"
     btnImportZip.innerHTML = "导入谱面 BeatSaber压缩包"
     btnImportZip.onclick = importFromBeatmap
-    btnImportZip.style["margin-left"] = "10px"
+    btnImportZip.style["margin-left"] = "5px"
     btnImportZip.style["font-size"] = "13px"
     div.append(btnImportZip)
     // 添加

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         闪韵灵镜歌曲搜索扩展
 // @namespace    cipher-editor-extra-song-search
-// @version      1.3.2
+// @version      1.3.3
 // @description  通过BeatSaver方便添加歌曲
 // @author       如梦Nya
 // @license      MIT
@@ -516,6 +516,7 @@ function fixSongListStyle() {
  */
 function addPreviewFunc() {
     let searchBox = $(".css-1d92frk")
+    $("#preview_tip").remove()
     searchBox.after("<div style='text-align: center;color:gray;padding-bottom:10px;' id='preview_tip'>双击歌曲可预览曲谱</div>")
     let infoViewList = $(".css-bil4eh")
     for (let index in infoViewList) {

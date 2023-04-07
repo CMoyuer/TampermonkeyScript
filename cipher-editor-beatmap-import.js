@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         闪韵灵镜铺面导入
 // @namespace    cipher-editor-beatmap-import
-// @version      1.2.1
+// @version      1.3
 // @description  通过BeatSaver导入铺面
 // @author       如梦Nya
 // @license      MIT
-// @run-at       document-start
+// @run-at       document-body
 // @grant        unsafeWindow
 // @match        https://cipher-editor-cn.picovr.com/*
 // @icon         https://cipher-editor-cn.picovr.com/assets/logo-eabc5412.png
@@ -13,6 +13,7 @@
 // ==/UserScript==
 
 const $ = window.jQuery
+let JSZip = ""
 
 // ================================================================================ 工具类 ================================================================================
 
@@ -208,48 +209,54 @@ class BeatSaverUtils {
  * 通用工具类
  */
 class Utils {
+    /** @type {HTMLIFrameElement | undefined} */
+    static _sandBoxIframe = undefined
+
+    /**
+     * 创建一个Iframe沙盒
+     * @returns {Document}
+     */
+    static getSandbox() {
+        if (!Utils._sandBoxIframe) {
+            let id = GM_info.script.namespace + "_iframe"
+
+            // 找ID
+            let iframes = $('#' + id)
+            if (iframes.length > 0) Utils._sandBoxIframe = iframes[0]
+
+            // 不存在，创建一个
+            if (!Utils._sandBoxIframe) {
+                let ifr = document.createElement("iframe");
+                ifr.id = id
+                ifr.style.display = "none"
+                document.body.appendChild(ifr);
+                Utils._sandBoxIframe = ifr;
+            }
+        }
+        return Utils._sandBoxIframe
+    }
+
     /**
      * 动态添加Script
      * @param {string} url 脚本链接
-     * @param {string} scriptId 脚本唯一ID
      * @returns 
      */
-    static dynamicLoadJs(url, scriptId) {
+    static dynamicLoadJs(url) {
         return new Promise(function (resolve, reject) {
-            // 判断之前有没有添加过
-            if (scriptId) {
-                let scripts = $("#" + scriptId)
-                if (scripts.length > 0) {
-                    let script = scripts[0]
-                    if (!script.readyState || script.readyState === "loaded" || script.readyState === "complete") {
-                        resolve()
-                    } else {
-                        script.onload = script.onreadystatechange = function () {
-                            if (!this.readyState || this.readyState === "loaded" || this.readyState === "complete") {
-                                resolve()
-                                script.onload = script.onreadystatechange = null
-                            }
-                        }
-                    }
-                    return
+            let ifrdoc = Utils.getSandbox().contentDocument;
+            let script = ifrdoc.createElement('script')
+            script.type = 'text/javascript'
+            script.src = url
+            script.onload = script.onreadystatechange = function () {
+                if (!this.readyState || this.readyState === "loaded" || this.readyState === "complete") {
+                    resolve()
+                    script.onload = script.onreadystatechange = null
                 }
             }
-            // 没有就添加
-            {
-                let script = document.createElement('script')
-                script.type = 'text/javascript'
-                script.src = url
-                if (scriptId) script.id = scriptId
-                script.onload = script.onreadystatechange = function () {
-                    if (!this.readyState || this.readyState === "loaded" || this.readyState === "complete") {
-                        resolve()
-                        script.onload = script.onreadystatechange = null
-                    }
-                }
-                $("head")[0].appendChild(script)
-            }
+            ifrdoc.body.appendChild(script)
         });
     }
+
     /**
      * 下载压缩包文件
      * @param {number} zipUrl 歌曲压缩包链接
@@ -277,6 +284,19 @@ class Utils {
 
 // ================================================================================ 方法 ================================================================================
 
+/**
+ * 初始化
+ */
+async function initScript() {
+    const sandBox = Utils.getSandbox()
+
+    await Utils.dynamicLoadJs("https://cmoyuer.gitee.io/my-resources/js/jszip.min.js")
+    JSZip = sandBox.contentWindow.JSZip
+
+    setInterval(() => {
+        addImportButton()
+    }, 1000)
+}
 
 /**
  * 在顶部菜单添加导入按钮
@@ -505,9 +525,5 @@ function convertBeatMapInfo(version, rawInfo) {
 (function () {
     'use strict'
 
-    Utils.dynamicLoadJs("https://cmoyuer.gitee.io/my-resources/js/jszip.min.js", "jszip").then(() => {
-        setInterval(() => {
-            addImportButton()
-        }, 1000)
-    })
+    initScript()
 })()

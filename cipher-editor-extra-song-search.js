@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         闪韵灵镜歌曲搜索扩展
 // @namespace    cipher-editor-extra-song-search
-// @version      1.3.3
+// @version      1.4
 // @description  通过BeatSaver方便添加歌曲
 // @author       如梦Nya
 // @license      MIT
-// @run-at       document-start
+// @run-at       document-body
 // @grant        unsafeWindow
 // @match        https://cipher-editor-cn.picovr.com/*
 // @icon         https://cipher-editor-cn.picovr.com/assets/logo-eabc5412.png
@@ -92,6 +92,27 @@ class WebDB {
  */
 class CipherUtils {
     /**
+     * 获取当前谱面的信息
+     */
+    static getNowBeatmapInfo() {
+        let url = location.href
+        // ID
+        let matchId = url.match(/id=(\w*)/)
+        let id = matchId ? matchId[1] : ""
+        // BeatSaverID
+        let beatsaverId = "*"
+        let nameBoxList = $(".css-tpsa02")
+        if (nameBoxList.length > 0) {
+            let name = nameBoxList[0].innerHTML
+            let matchBeatsaverId = name.match(/\[(\w*)\]/)
+            if (matchBeatsaverId) beatsaverId = matchBeatsaverId[1]
+        }
+        // 难度
+        let matchDifficulty = url.match(/difficulty=(\w*)/)
+        let difficulty = matchDifficulty ? matchDifficulty[1] : ""
+        return { id, difficulty, beatsaverId }
+    }
+    /**
      * 处理歌曲文件
      * @param {ArrayBuffer} rawBuffer 
      * @returns 
@@ -117,46 +138,51 @@ class CipherUtils {
  * 通用工具类
  */
 class Utils {
+    /** @type {HTMLIFrameElement | undefined} */
+    static _sandBoxIframe = undefined
+
+    /**
+     * 创建一个Iframe沙盒
+     * @returns {Document}
+     */
+    static getSandbox() {
+        if (!Utils._sandBoxIframe) {
+            let id = GM_info.script.namespace + "_iframe"
+
+            // 找ID
+            let iframes = $('#' + id)
+            if (iframes.length > 0) Utils._sandBoxIframe = iframes[0]
+
+            // 不存在，创建一个
+            if (!Utils._sandBoxIframe) {
+                let ifr = document.createElement("iframe");
+                ifr.id = id
+                ifr.style.display = "none"
+                document.body.appendChild(ifr);
+                Utils._sandBoxIframe = ifr;
+            }
+        }
+        return Utils._sandBoxIframe
+    }
+
     /**
      * 动态添加Script
      * @param {string} url 脚本链接
-     * @param {string} scriptId 脚本唯一ID
      * @returns 
      */
-    static dynamicLoadJs(url, scriptId) {
+    static dynamicLoadJs(url) {
         return new Promise(function (resolve, reject) {
-            // 判断之前有没有添加过
-            if (scriptId) {
-                let scripts = $("#" + scriptId)
-                if (scripts.length > 0) {
-                    let script = scripts[0]
-                    if (!script.readyState || script.readyState === "loaded" || script.readyState === "complete") {
-                        resolve()
-                    } else {
-                        script.onload = script.onreadystatechange = function () {
-                            if (!this.readyState || this.readyState === "loaded" || this.readyState === "complete") {
-                                resolve()
-                                script.onload = script.onreadystatechange = null
-                            }
-                        }
-                    }
-                    return
+            let ifrdoc = Utils.getSandbox().contentDocument;
+            let script = ifrdoc.createElement('script')
+            script.type = 'text/javascript'
+            script.src = url
+            script.onload = script.onreadystatechange = function () {
+                if (!this.readyState || this.readyState === "loaded" || this.readyState === "complete") {
+                    resolve()
+                    script.onload = script.onreadystatechange = null
                 }
             }
-            // 没有就添加
-            {
-                let script = document.createElement('script')
-                script.type = 'text/javascript'
-                script.src = url
-                if (scriptId) script.id = scriptId
-                script.onload = script.onreadystatechange = function () {
-                    if (!this.readyState || this.readyState === "loaded" || this.readyState === "complete") {
-                        resolve()
-                        script.onload = script.onreadystatechange = null
-                    }
-                }
-                $("head")[0].appendChild(script)
-            }
+            ifrdoc.body.appendChild(script)
         });
     }
 }
@@ -342,6 +368,40 @@ let searchFromBeatSaver = false
 
 let songInfoMap = {}
 
+/**
+ * 初始化
+ */
+async function initScript() {
+    const sandBox = Utils.getSandbox()
+
+    await Utils.dynamicLoadJs("https://cmoyuer.gitee.io/my-resources/js/jszip.min.js")
+    JSZip = sandBox.contentWindow.JSZip
+
+    bindXHRIntercept()
+
+    let lastPageType = "other"
+    // 定时任务
+    setInterval(() => {
+        let url = window.location.href
+        let pageType = url.indexOf("/edit/") >= 0 ? "edit" : "other"
+        if (pageType === "edit") {
+            if (pageType != lastPageType) {
+                // 更新歌曲信息
+                updateDatabase().then((hasChanged) => {
+                    if (hasChanged) setTimeout(() => { window.location.reload() }, 1000)
+                }).catch(err => {
+                    console.log("更新数据失败：", err)
+                    alert("更新歌曲信息失败，请刷新再试！")
+                })
+            }
+            applyConvertCiphermapButton()
+        } else {
+            applySearchButton()
+        }
+        lastPageType = pageType
+    }, 1000)
+}
+
 // 绑定XHR拦截器
 function bindXHRIntercept() {
     let xhrIntercept = new XHRIntercept()
@@ -439,8 +499,10 @@ function bindXHRIntercept() {
 
 /**
  * 更新数据库
+ * @param {Boolean} isForce 强制转换
+ * @returns 
  */
-async function updateDatabase() {
+async function updateDatabase(isForce) {
     let BLITZ_RHYTHM = await new WebDB().open("BLITZ_RHYTHM")
     let BLITZ_RHYTHM_files = await new WebDB().open("BLITZ_RHYTHM-files")
     let BLITZ_RHYTHM_official = await new WebDB().open("BLITZ_RHYTHM-official")
@@ -460,7 +522,7 @@ async function updateDatabase() {
         let songsById = JSON.parse(songsInfo.byId)
         for (let key in songsById) {
             let officialId = songsById[key].officialId
-            if (typeof officialId != "number" || officialId < 80000000000) continue
+            if (typeof officialId != "number" || (!isForce && officialId < 80000000000)) continue
             let songInfo = songsById[key]
             songInfos.push(JSON.parse(JSON.stringify(songInfo)))
             songInfo.coverArtFilename = songInfo.coverArtFilename.replace("" + songInfo.officialId, songInfo.id)
@@ -558,36 +620,53 @@ function applySearchButton() {
     }
 }
 
+/**
+ * 添加转换官方谱面的按钮
+ * @returns 
+ */
+async function applyConvertCiphermapButton() {
+    let BLITZ_RHYTHM = await new WebDB().open("BLITZ_RHYTHM")
+    try {
+        let rawSongs = await BLITZ_RHYTHM.get("keyvaluepairs", "persist:songs")
+        let songsInfo = JSON.parse(rawSongs)
+        let songsById = JSON.parse(songsInfo.byId)
+        let songId = CipherUtils.getNowBeatmapInfo().id
+        let officialId = songsById[songId].officialId
+        if (!officialId) return
+    } catch (error) {
+        console.error(error)
+        return
+    } finally {
+        BLITZ_RHYTHM.close()
+    }
+
+    let divList = $(".css-1tiz3p0")
+    if (divList.length > 0) {
+        if ($("#div-sync").length > 0) return
+        let divBox = $(divList[0]).clone()
+        divBox[0].id = "div-sync"
+        divBox.find(".css-ujbghi")[0].innerHTML = "转换为自定义谱面"
+        divBox.find(".css-1exyu3y")[0].innerHTML = "将官方谱面转换为自定义谱面, 以导出带有音乐文件的完整谱面压缩包。"
+        divBox.find(".css-1y7rp4x")[0].innerText = "开始转换谱面"
+        divBox[0].onclick = e => {
+            // 更新歌曲信息
+            updateDatabase(true).then((hasChanged) => {
+                if (hasChanged) setTimeout(() => { window.location.reload() }, 1000)
+            }).catch(err => {
+                console.log("转换谱面失败：", err)
+                alert("转换谱面失败，请刷新再试！")
+            })
+        }
+        $(divList[0].parentNode).append(divBox)
+    }
+}
+
 // ================================================================================ 入口 ================================================================================
 
 // 主入口
 (function () {
     'use strict';
 
-    // 加载jszip
-    Utils.dynamicLoadJs("https://cmoyuer.gitee.io/my-resources/js/jszip.min.js", "jszip").then(() => {
-        bindXHRIntercept()
-
-        let lastPageType = "other"
-        // 定时任务
-        setInterval(() => {
-            let url = window.location.href
-            let pageType = url.indexOf("/edit/") >= 0 ? "edit" : "other"
-            if (pageType === "edit") {
-                if (pageType != lastPageType) {
-                    // 更新歌曲信息
-                    updateDatabase().then((hasChanged) => {
-                        if (hasChanged) setTimeout(() => { window.location.reload() }, 1000)
-                    }).catch(err => {
-                        console.log("更新数据失败：", err)
-                        alert("更新歌曲信息失败，请刷新再试！")
-                    })
-                }
-            } else {
-                applySearchButton()
-            }
-            lastPageType = pageType
-        }, 1000)
-    })
+    initScript()
 })()
 

@@ -723,9 +723,9 @@ class SearchSongExtension {
 
         let divList = $(".css-1tiz3p0")
         if (divList.length > 0) {
-            if ($("#div-sync").length > 0) return
+            if ($("#div-custom").length > 0) return
             let divBox = $(divList[0]).clone()
-            divBox[0].id = "div-sync"
+            divBox[0].id = "div-custom"
             divBox.find(".css-ujbghi")[0].innerHTML = "转换为自定义谱面"
             divBox.find(".css-1exyu3y")[0].innerHTML = "将官方谱面转换为自定义谱面, 以导出带有音乐文件的完整谱面压缩包。"
             divBox.find(".css-1y7rp4x")[0].innerText = "开始转换谱面"

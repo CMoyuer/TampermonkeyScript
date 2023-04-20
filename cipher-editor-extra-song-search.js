@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         闪韵灵镜歌曲搜索扩展
+// @name         闪韵灵境歌曲搜索扩展
 // @namespace    cipher-editor-extra-song-search
 // @version      1.4
 // @description  通过BeatSaver方便添加歌曲
@@ -88,7 +88,7 @@ class WebDB {
 }
 
 /**
- * 闪韵灵镜工具类
+ * 闪韵灵境工具类
  */
 class CipherUtils {
     /**

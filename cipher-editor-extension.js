@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         《闪韵灵镜谱面编辑器》功能扩展
+// @name         《闪韵灵境谱面编辑器》功能扩展
 // @namespace    cipher-editor-extension
 // @version      1.0
-// @description  为《闪韵灵镜谱面编辑器》扩展各种实用的功能
+// @description  为《闪韵灵境谱面编辑器》扩展各种实用的功能
 // @author       如梦Nya
 // @license      MIT
 // @run-at       document-body
@@ -89,7 +89,7 @@ class WebDB {
 }
 
 /**
- * 闪韵灵镜工具类
+ * 闪韵灵境工具类
  */
 class CipherUtils {
     /**

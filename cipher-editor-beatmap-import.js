@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         闪韵灵镜铺面导入
+// @name         闪韵灵境铺面导入
 // @namespace    cipher-editor-beatmap-import
 // @version      1.3
 // @description  通过BeatSaver导入铺面
@@ -90,7 +90,7 @@ class WebDB {
 
 
 /**
- * 闪韵灵镜工具类
+ * 闪韵灵境工具类
  */
 class CipherUtils {
     /**

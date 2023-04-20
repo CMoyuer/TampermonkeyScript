@@ -138,7 +138,7 @@ class CipherUtils {
      * 关闭编辑器顶部菜单
      */
     static closeEditorTopMenu() {
-        $(".css-7vvr1").click()
+        $(".css-1k12r02").click()
     }
 
     /**

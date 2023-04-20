@@ -252,7 +252,7 @@ class BeatSaverUtils {
                 }
             }
             for (let i = 0; i < pageCount; i++) {
-                $.get("https://beatsaver.com/api/search/text/" + i + "?sortOrder=Relevance&q=" + searchKey, func)
+                $.get("https://api.beatsaver.com/search/text/" + i + "?sortOrder=Relevance&q=" + searchKey, func)
             }
         })
     }
@@ -311,7 +311,7 @@ class BeatSaverUtils {
     static getDownloadUrl(id) {
         return new Promise(function (resolve, reject) {
             $.ajax({
-                url: "https://beatsaver.com/api/maps/id/" + id,
+                url: "https://api.beatsaver.com/maps/id/" + id,
                 type: "get",
                 success: (data) => {
                     resolve(data.versions[0].downloadURL)

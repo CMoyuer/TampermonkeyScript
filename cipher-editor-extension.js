@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         《闪韵灵境谱面编辑器》功能扩展
 // @namespace    cipher-editor-extension
-// @version      1.0.1
+// @version      1.0.2
 // @description  为《闪韵灵境谱面编辑器》扩展各种实用的功能
 // @author       如梦Nya
 // @license      MIT

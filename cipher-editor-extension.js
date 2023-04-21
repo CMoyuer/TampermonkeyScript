@@ -101,7 +101,7 @@ class CipherUtils {
         let matchId = url.match(/id=(\w*)/)
         let id = matchId ? matchId[1] : ""
         // BeatSaverID
-        let beatsaverId = "*"
+        let beatsaverId = ""
         let nameBoxList = $(".css-tpsa02")
         if (nameBoxList.length > 0) {
             let name = nameBoxList[0].innerHTML
@@ -351,6 +351,7 @@ class BeatSaverUtils {
         // 难度对应文件名
         let beatmapInfo = {
             version: rawBeatmapInfo._version,
+            levelAuthorName: rawBeatmapInfo._levelAuthorName,
             difficulties: [],
             files: {}
         }
@@ -871,17 +872,32 @@ class ImportBeatmapExtension {
      * @param {{id:string, difficulty:string, beatsaverId:string}} nowBeatmapInfo
      */
     async importBeatmap(zipBlob, nowBeatmapInfo) {
+        let BLITZ_RHYTHM = await new WebDB().open("BLITZ_RHYTHM")
         let BLITZ_RHYTHM_files = await new WebDB().open("BLITZ_RHYTHM-files")
         try {
-            // 获取当前谱面信息
+            // 获取当前谱面基本信息
+            let rawSongs = await BLITZ_RHYTHM.get("keyvaluepairs", "persist:songs")
+            let songsInfo = JSON.parse(rawSongs)
+            let songsById = JSON.parse(songsInfo.byId)
+            let songInfo = songsById[nowBeatmapInfo.id]
+
+            let userName = ""
+            let songDuration = -1
+            {
+                let rawUser = await BLITZ_RHYTHM.get("keyvaluepairs", "persist:user")
+                userName = JSON.parse(JSON.parse(rawUser).userInfo).name
+
+                songDuration = Math.floor(songInfo.songDuration * (songInfo.bpm / 60))
+            }
+            // 获取当前谱面难度信息
             let datKey = nowBeatmapInfo.id + "_" + nowBeatmapInfo.difficulty + "_Ring.dat"
-            let datStr = await BLITZ_RHYTHM_files.get("keyvaluepairs", datKey)
-            let datInfo = JSON.parse(datStr)
+            let datInfo = JSON.parse(await BLITZ_RHYTHM_files.get("keyvaluepairs", datKey))
             if (datInfo._version !== "2.3.0")
                 throw "插件不支持该谱面版本！可尝试重新创建谱面"
             let beatmapInfo = await BeatSaverUtils.getBeatmapInfo(zipBlob)
             if (beatmapInfo.difficulties.length == 0)
                 throw "该谱面找不到可用的难度"
+
             // 选择导入难度
             let tarDifficulty = 1
             {
@@ -910,10 +926,15 @@ class ImportBeatmapExtension {
             }
             // 开始导入
             let beatmapInfoStr = await beatmapInfo.files[beatmapInfo.difficulties[tarDifficulty - 1]].async("string")
-            let changeInfo = this.convertBeatMapInfo(beatmapInfo.version, JSON.parse(beatmapInfoStr))
+            let changeInfo = this.convertBeatMapInfo(beatmapInfo.version, JSON.parse(beatmapInfoStr), songDuration)
             datInfo._notes = changeInfo._notes
             datInfo._obstacles = changeInfo._obstacles
             await BLITZ_RHYTHM_files.put("keyvaluepairs", datKey, JSON.stringify(datInfo))
+            // 设置谱师署名
+            songInfo.mapAuthorName = userName + " & " + beatmapInfo.levelAuthorName
+            songsInfo.byId = JSON.stringify(songsById)
+            await BLITZ_RHYTHM.put("keyvaluepairs", "persist:songs", JSON.stringify(songsInfo))
+
             // 导入完成
             setTimeout(() => {
                 CipherUtils.closeEditorTopMenu()
@@ -922,6 +943,7 @@ class ImportBeatmapExtension {
         } catch (error) {
             throw error
         } finally {
+            BLITZ_RHYTHM.close()
             BLITZ_RHYTHM_files.close()
         }
     }
@@ -930,8 +952,9 @@ class ImportBeatmapExtension {
      * 转换BeatSaber谱面信息
      * @param {string} version
      * @param {JSON} info 
+     * @param {number} songDuration
      */
-    convertBeatMapInfo(version, rawInfo) {
+    convertBeatMapInfo(version, rawInfo, songDuration) {
         let info = {
             _notes: [], // 音符
             _obstacles: [], // 墙
@@ -940,6 +963,7 @@ class ImportBeatmapExtension {
             // 音符
             for (let index in rawInfo.colorNotes) {
                 let rawNote = rawInfo.colorNotes[index]
+                if (songDuration > 0 && rawNote.b > songDuration) continue
                 info._notes.push({
                     _time: rawNote.b,
                     _lineIndex: rawNote.x,
@@ -952,6 +976,7 @@ class ImportBeatmapExtension {
             // 音符
             for (let index in rawInfo._notes) {
                 let rawNote = rawInfo._notes[index]
+                if (songDuration > 0 && rawNote._time > songDuration) continue
                 info._notes.push({
                     _time: rawNote._time,
                     _lineIndex: rawNote._lineIndex,
@@ -963,6 +988,7 @@ class ImportBeatmapExtension {
             // 墙
             for (let index in rawInfo._obstacles) {
                 let rawNote = rawInfo._obstacles[index]
+                if (songDuration > 0 && rawNote._time > songDuration) continue
                 info._obstacles.push({
                     _time: rawNote._time,
                     _duration: rawNote._duration,
@@ -984,17 +1010,20 @@ class ImportBeatmapExtension {
             baseInfo._duration = 0.04
             // 头
             baseInfo._time = startTime
-            newObstacles.push(JSON.parse(JSON.stringify(baseInfo)))
+            if (songDuration < 0 || (baseInfo._time + baseInfo._duration) < songDuration)
+                newObstacles.push(JSON.parse(JSON.stringify(baseInfo)))
             // 中间
             let count = Math.floor(duration / 1) - 2  // 至少间隔1秒
             let dtime = ((endTime - 0.04) - (startTime + 0.04)) / count
             for (let i = 0; i < count; i++) {
                 baseInfo._time += dtime
-                newObstacles.push(JSON.parse(JSON.stringify(baseInfo)))
+                if (songDuration < 0 || (baseInfo._time + baseInfo._duration) < songDuration)
+                    newObstacles.push(JSON.parse(JSON.stringify(baseInfo)))
             }
             // 尾
             baseInfo._time = endTime - 0.04
-            newObstacles.push(JSON.parse(JSON.stringify(baseInfo)))
+            if (songDuration < 0 || (baseInfo._time + baseInfo._duration) < songDuration)
+                newObstacles.push(JSON.parse(JSON.stringify(baseInfo)))
         }
         info._obstacles = newObstacles
         return info

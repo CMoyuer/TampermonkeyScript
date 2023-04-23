@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         《闪韵灵境谱面编辑器》功能扩展
 // @namespace    cipher-editor-extension
-// @version      1.0.2
+// @version      1.0.3
 // @description  为《闪韵灵境谱面编辑器》扩展各种实用的功能
 // @author       如梦Nya
 // @license      MIT
@@ -153,6 +153,21 @@ class CipherUtils {
      */
     static hideLoading() {
         $(".css-c81162").remove()
+    }
+
+    /**
+     * 等待Loading结束
+     * @returns 
+     */
+    static waitLoading() {
+        return new Promise((resolve, reject) => {
+            let handle = setInterval((() => {
+                let loadingList = $(".css-c81162")
+                if (loadingList && loadingList.length > 0) return
+                clearInterval(handle)
+                resolve()
+            }), 500)
+        })
     }
 }
 
@@ -587,12 +602,6 @@ class SearchSongExtension {
         let BLITZ_RHYTHM = await new WebDB().open("BLITZ_RHYTHM")
         let BLITZ_RHYTHM_files = await new WebDB().open("BLITZ_RHYTHM-files")
         let BLITZ_RHYTHM_official = await new WebDB().open("BLITZ_RHYTHM-official")
-        // 获取用户名称
-        let userName
-        {
-            let rawUser = await BLITZ_RHYTHM.get("keyvaluepairs", "persist:user")
-            userName = JSON.parse(JSON.parse(rawUser).userInfo).name
-        }
         let songInfos = []
         let hasChanged = false
         let songsInfo
@@ -609,7 +618,6 @@ class SearchSongExtension {
                 songInfo.coverArtFilename = songInfo.coverArtFilename.replace("" + songInfo.officialId, songInfo.id)
                 songInfo.songFilename = songInfo.songFilename.replace("" + songInfo.officialId, songInfo.id)
                 songInfo.officialId = ""
-                songInfo.mapAuthorName = userName
                 songsById[key] = songInfo
                 hasChanged = true
             }
@@ -769,7 +777,16 @@ class SearchSongExtension {
         this.initXHRIntercept()
 
         // 启动定时任务
-        setInterval(() => { this.handleTimer() }, 1000)
+        let timerFunc = () => {
+            CipherUtils.waitLoading().then(() => {
+                setTimeout(timerFunc, 1000)
+                this.handleTimer()
+            }).catch(err => {
+                setTimeout(timerFunc, 1000)
+                console.error(err)
+            })
+        }
+        timerFunc()
     }
 }
 
@@ -1033,9 +1050,16 @@ class ImportBeatmapExtension {
      * 初始化
      */
     async init() {
-        setInterval(() => {
-            this.addImportButton()
-        }, 1000)
+        let timerFunc = () => {
+            CipherUtils.waitLoading().then(() => {
+                this.addImportButton()
+                setTimeout(timerFunc, 1000)
+            }).catch(err => {
+                console.error(err)
+                setTimeout(timerFunc, 1000)
+            })
+        }
+        timerFunc()
     }
 }
 

@@ -1,13 +1,14 @@
 // ==UserScript==
 // @name         《闪韵灵境谱面编辑器》功能扩展
 // @namespace    cipher-editor-extension
-// @version      1.0.3
+// @version      1.1.0
 // @description  为《闪韵灵境谱面编辑器》扩展各种实用的功能
 // @author       如梦Nya
 // @license      MIT
 // @run-at       document-body
 // @grant        unsafeWindow
 // @match        https://cipher-editor-cn.picovr.com/*
+// @match        https://pc.woozooo.com/*
 // @icon         https://cipher-editor-cn.picovr.com/assets/logo-eabc5412.png
 // @require      https://code.jquery.com/jquery-3.6.0.min.js
 // ==/UserScript==
@@ -132,6 +133,20 @@ class CipherUtils {
             dataView.setUint8(BYTE_VERIFY_ARRAY.length + i, rawData[i])
         }
         return new Blob([buffer], { type: "application/octet-stream" })
+    }
+
+    /**
+     * 获取当前页面类型
+     * @returns 
+     */
+    static getPageType() {
+        let url = window.location.href
+        let matchs = url.match(/edit\/(\w{1,})/)
+        if (!matchs) {
+            return "home"
+        } else {
+            return matchs[1]
+        }
     }
 
     /**
@@ -488,8 +503,61 @@ class Utils {
             xhr.send()
         })
     }
+
+    /**
+     * 异步发起网络请求
+     * @param {object} config 
+     * @returns 
+     */
+    static ajax(config) {
+        return new Promise((resolve, reject) => {
+            config.success = (result, status, xhr) => {
+                resolve({ result, status, xhr })
+            }
+            config.error = (xhr, status, error) => {
+                reject({ xhr, status, error })
+            }
+            $.ajax(config)
+        })
+    }
+
+    /**
+     * 将Blob转换为Base64
+     * @param {Blob} blob
+     * @returns {Promise}
+     */
+    static blobToBase64(blob) {
+        return new Promise(function (resolve, reject) {
+            const fileReader = new FileReader();
+            fileReader.onload = (e) => {
+                resolve(e.target.result)
+            }
+            fileReader.readAsDataURL(blob)
+        })
+    }
+
+    /**
+     * 将Base64格式转换为File
+     * @param {string} base64 
+     * @param {string} filename 
+     * @returns 
+     */
+    static base64toFile(base64, filename = 'file') {
+        let arr = base64.split(',')
+        let mime = arr[0].match(/:(.*?);/)[1]
+        let suffix = mime.split('/')[1]
+        let bstr = atob(arr[1])
+        let n = bstr.length
+        let u8arr = new Uint8Array(n)
+        while (n--) {
+            u8arr[n] = bstr.charCodeAt(n)
+        }
+        return new File([u8arr], `${filename}.${suffix}`, {
+            type: mime,
+        })
+    }
 }
-// ================================================================================ 拓展 ================================================================================
+// ================================================================================ 编辑器拓展 ================================================================================
 
 class SearchSongExtension {
     constructor() {
@@ -750,14 +818,23 @@ class SearchSongExtension {
             $(divList[0].parentNode).append(divBox)
         }
     }
+
+    /**
+     * 隐藏按钮
+     */
+    hideConvertCiphermapButton() {
+        $("#div-custom").remove()
+    }
     /**
      * 定时任务 1s
      */
     handleTimer() {
-        let url = window.location.href
-        let pageType = url.indexOf("/edit/") >= 0 ? "edit" : "other"
-        if (pageType === "edit") {
+        let pageType = CipherUtils.getPageType()
+        if (pageType !== "home") {
             if (pageType != this.lastPageType) {
+                // 隐藏按钮
+                if (pageType !== "download")
+                    this.hideConvertCiphermapButton()
                 // 更新歌曲信息
                 this.updateDatabase().then((hasChanged) => {
                     if (hasChanged) setTimeout(() => { window.location.reload() }, 1000)
@@ -765,8 +842,9 @@ class SearchSongExtension {
                     console.log("更新数据失败：", err)
                     alert("更新歌曲信息失败，请刷新再试！")
                 })
+            } else if (pageType === "download") {
+                this.applyConvertCiphermapButton()
             }
-            this.applyConvertCiphermapButton()
         } else {
             this.applySearchButton()
         }
@@ -1063,8 +1141,467 @@ class ImportBeatmapExtension {
     }
 }
 
+class UploadCiphermapExtension {
+    constructor() {
+
+    }
+
+    /** @type {Window | undefined} */
+    _lzyWindow = undefined
+    _ready = false
+
+    /** @type {{id:number, name:string, timer:number} | undefined} */
+    _uploadInfo = undefined
+    getLZYWindow() {
+        let self = this
+        return new Promise(function (resolve, reject) {
+            let win = self._lzyWindow
+            if (!win || win.closed) {
+                win = window.open("https://pc.woozooo.com/mydisk.php", null, "height=720,width=1280,resizable=0,status=0,toolbar=0,menubar=0,location=0,status=0")
+                self._lzyWindow = win
+                self._ready = false
+            }
+            if (self._ready) {
+                resolve(win)
+            } else {
+                let handle
+                // let timeoutHandle = setTimeout(() => {
+                //     clearInterval(handle)
+                //     reject("time out")
+                //     // win.close()
+                // }, 10 * 1000)
+                handle = setInterval(() => {
+                    if (self._ready) {
+                        // clearTimeout(timeoutHandle)
+                        clearInterval(handle)
+                        resolve(win)
+                    } else if (!win || win.closed) {
+                        // clearTimeout(timeoutHandle)
+                        clearInterval(handle)
+                        reject("window close")
+                    }
+                }, 100)
+            }
+        })
+    }
+
+    /**
+     * 关闭蓝奏云窗口
+     * @returns 
+     */
+    closeWindow() {
+        if (!this._lzyWindow || this._lzyWindow.closed) return
+        this._lzyWindow.close()
+    }
+
+    /**
+     * 上传当前谱面
+     */
+    async uploadCiphermap() {
+        if (this._uploadInfo) {
+            alert("还有未完成的上传任务，请勿频繁操作")
+            return
+        }
+        let mapId = CipherUtils.getNowBeatmapInfo().id
+        // 获取谱面信息
+        let BLITZ_RHYTHM = await new WebDB().open("BLITZ_RHYTHM")
+        try {
+            let songsStr = await BLITZ_RHYTHM.get("keyvaluepairs", "persist:songs")
+            let songPairs = JSON.parse(JSON.parse(songsStr).byId)
+            let mapInfo = songPairs[mapId]
+            // console.log(mapInfo)
+            // 提交任务
+            this._uploadInfo = {
+                id: mapId,
+                name: mapInfo.name,
+                timer: 0
+            }
+            this._uploadInfo.timer = setTimeout(() => {
+                console.warn("获取谱面压缩包失败: 编辑器超时未响应")
+                this._uploadInfo = undefined
+                alert("获取谱面压缩包失败!")
+            }, 5000)
+            unsafeWindow.postMessage({ event: "query_ciphermap_zip", id: mapId })
+        } catch (err) {
+            alert("上传时发生错误: " + err)
+            console.error(err)
+        } finally {
+            BLITZ_RHYTHM.close()
+        }
+    }
+
+    /**
+     * 在歌曲下载页面添加上传按钮
+     */
+    addUploadButton() {
+        let divList = $(".css-1tiz3p0")
+        if (divList.length > 0) {
+            if ($("#div-upload").length > 0) return
+            let divBox = $(divList[0]).clone()
+            divBox[0].id = "div-upload"
+            divBox.find(".css-ujbghi")[0].innerHTML = "上传谱面"
+            divBox.find(".css-1exyu3y")[0].innerHTML = "将当前谱面信息上传至蓝奏云。"
+            divBox.find(".css-1y7rp4x")[0].innerText = "开始上传"
+            divBox[0].onclick = e => {
+                this.uploadCiphermap()
+            }
+            $(divList[0].parentNode).append(divBox)
+        }
+    }
+    /**
+     * 隐藏按钮
+     */
+    hideUploadButton() {
+        $("#div-upload").remove()
+    }
+    /**
+     * 初始化
+     */
+    async init() {
+        // 定时任务
+        let timerFunc = () => {
+            CipherUtils.waitLoading().then(() => {
+                let pageType = CipherUtils.getPageType()
+                if (pageType === "download") {
+                    this.addUploadButton()
+                } else {
+                    this.hideUploadButton()
+                }
+                setTimeout(timerFunc, 1000)
+            }).catch(err => {
+                console.error(err)
+                setTimeout(timerFunc, 1000)
+            })
+        }
+        timerFunc()
+
+        // 监听信息
+        window.addEventListener("message", event => {
+            /** @type {{event:string}} */
+            let data = event.data
+            if (!data || !data.event) return
+
+            if (data.event === "result_ciphermap_zip") {
+                if (data.code !== 0 || !this._uploadInfo || data.data.id !== this._uploadInfo.id) return
+                clearTimeout(this._uploadInfo.timer)
+                Utils.blobToBase64(data.data.blob).then(base64 => {
+                    this.getLZYWindow().then(win => {
+                        win.focus()
+                        win.postMessage({
+                            event: "upload_ciphermap",
+                            mapId: this._uploadInfo.id,
+                            name: this._uploadInfo.name,
+                            base64
+                        }, "*")
+                        this._uploadInfo = undefined
+                    }).catch(err => {
+                        // alert("打开网页超时")
+                        console.error(err)
+                        this._uploadInfo = undefined
+                    })
+                }).catch(err => {
+                    console.error("转换文件格式时出错:", err)
+                    alert("转换文件格式时出错!")
+                })
+            }
+        })
+    }
+}
+
+// ============================================================================== 其他网站 ==============================================================================
+
+class WooZoooHelper {
+
+    /** @type {number} 谱面存放目录ID */
+    mapFolderId = -1
+    FILE_ID = 0
+
+    constructor() {
+
+    }
+
+    /**
+     * 获取文件夹列表
+     * @param {number} folderId 目录ID
+     * @returns
+     */
+    async get_folder_list(folderId = -1) {
+        let formData = new FormData()
+        formData.append("task", 47)
+        formData.append("folder_id", folderId)
+        let { result, status, xhr } = await Utils.ajax({
+            type: "post",
+            contentType: false,
+            processData: false,
+            url: "/doupload.php",
+            data: formData
+        })
+        return result.text || []
+    }
+
+    /**
+     * 创建文件夹
+     * @param {string} name 文件夹名称
+     * @param {string} description 文件夹描述
+     * @param {number | undefined} parentId 文件夹ID
+     * @returns 
+     */
+    async create_folder(name, description = "", parentId = 0) {
+        let formData = new FormData()
+        formData.append("task", 2)
+        formData.append("parent_id", parentId)
+        formData.append("folder_name", name)
+        formData.append("folder_description", description)
+
+        let { result, status, xhr } = await Utils.ajax({
+            type: "post",
+            contentType: false,
+            processData: false,
+            url: "/doupload.php",
+            data: formData
+        })
+        return { folderId: result.text }
+    }
+
+    /**
+     * 获取/创建谱面存放目录
+     */
+    async getCiphermapFolderId() {
+        // 查找现有文件夹
+        let folderList = await this.get_folder_list(-1)
+        for (let i in folderList) {
+            let info = folderList[i]
+            if (info.name === "Ciphermaps")
+                return info.fol_id
+        }
+        // 如果没找到，就新建一个
+        let folderInfo = await this.create_folder("Ciphermaps", "闪韵灵境 谱面")
+        return folderInfo.folderId
+    }
+
+    /**
+     * 上传压缩包文件
+     * @param {File} file 文件
+     * @param {number | undefined} folderId 文件夹ID
+     * @returns 
+     */
+    async upload_zip_file(file, folderId = -1) {
+        let formData = new FormData()
+        formData.append("task", 1)
+        formData.append("vie", 2)
+        formData.append("ve", 2)
+        formData.append("id", "WU_FILE_" + this.FILE_ID++)
+        formData.append("name", file.name)
+        formData.append("type", "application/x-zip-compressed")
+        formData.append("lastModifiedDate", new Date(file.lastModified).toString())
+        formData.append("size", file.size)
+        formData.append("folder_id_bb_n", folderId)
+        formData.append("upload_file", file)
+
+        let { result, status, xhr } = await Utils.ajax({
+            type: "post",
+            contentType: false,
+            processData: false,
+            url: "/html5up.php",
+            data: formData
+        })
+        let info = result.text[0]
+        console.log(info)
+        return ({
+            id: info.id,
+            f_id: info.f_id
+        })
+    }
+
+    /**
+     * 获取文件描述
+     * @param {number} fileId 文件ID
+     * @returns
+     */
+    async get_file_description(fileId) {
+        let formData = new FormData()
+        formData.append("task", 12)
+        formData.append("file_id", fileId)
+
+        let { result, status, xhr } = await Utils.ajax({
+            type: "post",
+            contentType: false,
+            processData: false,
+            url: "/doupload.php",
+            data: formData
+        })
+        return result.info
+    }
+
+    /**
+     * 设置文件描述
+     * @param {number} fileId 文件ID
+     * @param {string} description 文件描述
+     * @returns
+     */
+    async set_file_description(fileId, description) {
+        let formData = new FormData()
+        formData.append("task", 11)
+        formData.append("file_id", fileId)
+        formData.append("desc", description)
+
+        let { result, status, xhr } = await Utils.ajax({
+            type: "post",
+            contentType: false,
+            processData: false,
+            url: "/doupload.php",
+            data: formData
+        })
+        return result.info
+    }
+
+    /**
+     * 删除指定文件
+     * @param {number} fileId 文件ID
+     * @returns
+     */
+    async delete_file(fileId) {
+        let formData = new FormData()
+        formData.append("task", 6)
+        formData.append("file_id", fileId)
+
+        let { result, status, xhr } = await Utils.ajax({
+            type: "post",
+            contentType: false,
+            processData: false,
+            url: "/doupload.php",
+            data: formData
+        })
+    }
+
+    /**
+     * 获取API校验码
+     * @returns 
+     */
+    get_vei() {
+        return $("#mainframe")[0].contentDocument.body.innerHTML.match(/'vei':'(\S{1,})\'/)[1]
+    }
+
+    /**
+     * 获取用户ID
+     */
+    get_uid() {
+        return $("#mainframe")[0].contentDocument.body.innerHTML.match(/uid=(\d{1,})/)[1]
+    }
+
+    /**
+     * 获取文件列表
+     * @param {number} folderId 目录ID
+     * @returns
+     */
+    async get_file_list(folderId = -1) {
+        let formData = new FormData()
+        formData.append("pg", 1)
+        formData.append("vei", this.get_vei())
+        formData.append("task", 5)
+        formData.append("folder_id", folderId)
+        let { result, status, xhr } = await Utils.ajax({
+            type: "post",
+            contentType: false,
+            processData: false,
+            url: "/doupload.php?uid=" + this.get_uid(),
+            data: formData
+        })
+        return result.text || []
+    }
+
+    /**
+     * 移除相同ID的文件
+     */
+    async removeSameFile() {
+        let fileList = await this.get_file_list(this.mapFolderId)
+        let ids = []
+        for (let i = 0; i < fileList.length; i++) {
+            let fileId = fileList[i].id
+            let mapId = await this.get_file_description(fileId)
+            if (ids.indexOf(mapId) >= 0) {
+                console.log("delete file:", fileId)
+                await this.delete_file(fileId)
+            } else {
+                ids.push(mapId)
+            }
+        }
+    }
+
+    /**
+     * 上传谱面
+     * @param {{base64:string, name:string, mapId:string}} info
+     */
+    async updateCiphermap(info) {
+        console.log(info)
+        let file = Utils.base64toFile(info.base64, info.name)
+        let { id, f_id } = await this.upload_zip_file(file, this.mapFolderId)
+        await this.set_file_description(id, info.mapId)
+        await this.removeSameFile()
+    }
+
+    /**
+     * 初始化
+     */
+    async init() {
+        this.mapFolderId = await this.getCiphermapFolderId()
+        // 监听信息
+        window.addEventListener("message", event => {
+            /** @type {{event:string}} */
+            let data = event.data
+            if (!data || !data.event) return
+            if (data.event === "upload_ciphermap") {
+                this.updateCiphermap(data).then(() => {
+                    alert("上传成功")
+                }).catch(err => {
+                    console.error(err)
+                    alert("上传失败：" + err)
+                })
+            }
+        })
+        // 完成
+        window.opener.postMessage({ event: "alive" }, "*")
+    }
+}
+
 // ================================================================================ 入口 ================================================================================
 
+/**
+ * 谱面编辑器
+ */
+function initEditor() {
+    // 加载拓展
+    new SearchSongExtension().init()
+    new ImportBeatmapExtension().init()
+    let uploadEx = new UploadCiphermapExtension()
+    uploadEx.init()
+
+    // 监听信息
+    window.addEventListener("message", event => {
+        /** @type {{event:string}} */
+        let data = event.data
+        if (!data || !data.event) return
+        if (data.event === "alive" && event.origin.indexOf("pc.woozooo.com") > 0) {
+            uploadEx._ready = true
+            console.log(event)
+        }
+    })
+    window.addEventListener("beforeunload", () => {
+        uploadEx.closeWindow()
+    })
+}
+
+/**
+ * 蓝奏云
+ */
+function initLZY() {
+    if (!window.opener) return
+    new WooZoooHelper().init()
+}
+
+/**
+ * 主入口
+ */
 (async function () {
     'use strict';
 
@@ -1073,8 +1610,10 @@ class ImportBeatmapExtension {
     await SandBox.dynamicLoadJs("https://cmoyuer.gitee.io/my-resources/js/jszip.min.js")
     JSZip = sandBox.contentWindow.JSZip
 
-    // 加载拓展
-    new SearchSongExtension().init()
-    new ImportBeatmapExtension().init()
+    if (location.href.indexOf("cipher-editor-cn.picovr.com") > 0) {
+        initEditor()
+    } else if (location.href.indexOf("pc.woozooo.com/mydisk.php") > 0) {
+        initLZY()
+    }
 })()
 

@@ -21,6 +21,8 @@
 
 ### 谱面导入拓展
 
+![ezgif-4-74e3cf8ff3](https://user-images.githubusercontent.com/51113234/235820327-034e0acc-2e66-4666-8ece-474246d8e629.gif)
+
  - 支持一键上传当前谱面到蓝奏云网盘
 
 ## 更新记录

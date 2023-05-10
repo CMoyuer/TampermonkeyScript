@@ -1058,7 +1058,7 @@ class ImportBeatmapExtension {
             // 音符
             for (let index in rawInfo.colorNotes) {
                 let rawNote = rawInfo.colorNotes[index]
-                if (songDuration > 0 && rawNote.b > songDuration) continue
+                if (songDuration > 0 && rawNote.b > songDuration) continue // 去除歌曲结束后的音符
                 info._notes.push({
                     _time: rawNote.b,
                     _lineIndex: rawNote.x,
@@ -1071,7 +1071,8 @@ class ImportBeatmapExtension {
             // 音符
             for (let index in rawInfo._notes) {
                 let rawNote = rawInfo._notes[index]
-                if (songDuration > 0 && rawNote._time > songDuration) continue
+                if (songDuration > 0 && rawNote._time > songDuration) continue // 去除歌曲结束后的音符
+                if (rawNote._customData && rawNote._customData._track === "choarrowspazz") continue // 去除某个mod的前级音符
                 info._notes.push({
                     _time: rawNote._time,
                     _lineIndex: rawNote._lineIndex,
@@ -1083,7 +1084,7 @@ class ImportBeatmapExtension {
             // 墙
             for (let index in rawInfo._obstacles) {
                 let rawNote = rawInfo._obstacles[index]
-                if (songDuration > 0 && rawNote._time > songDuration) continue
+                if (songDuration > 0 && rawNote._time > songDuration) continue // 去除歌曲结束后的墙
                 info._obstacles.push({
                     _time: rawNote._time,
                     _duration: rawNote._duration,
@@ -1149,9 +1150,11 @@ class UploadCiphermapExtension {
     /** @type {Window | undefined} */
     _lzyWindow = undefined
     _ready = false
+    _uploadUserInfo = false
 
     /** @type {{id:number, name:string, timer:number} | undefined} */
     _uploadInfo = undefined
+
     getLZYWindow() {
         let self = this
         return new Promise(function (resolve, reject) {
@@ -1231,6 +1234,38 @@ class UploadCiphermapExtension {
     }
 
     /**
+     * 上传用户信息
+     * @returns 
+     */
+    async uploadUserInfo() {
+        // 获取谱面信息
+        let BLITZ_RHYTHM = await new WebDB().open("BLITZ_RHYTHM")
+        try {
+            let userStr = await BLITZ_RHYTHM.get("keyvaluepairs", "persist:user")
+            let userInfo = JSON.parse(JSON.parse(userStr).userInfo)
+            // 提交任务
+            let info = {
+                event: "upload_user_info",
+                id: userInfo.user_id_str,
+                name: userInfo.name,
+                avatar: userInfo.avatar_url
+            }
+            this.getLZYWindow().then(win => {
+                win.focus()
+                win.postMessage(info, "*")
+            }).catch(err => {
+                // alert("打开网页超时")
+                console.error(err)
+            })
+        } catch (err) {
+            // alert("上传时发生错误: " + err)
+            console.error("上传谱师信息时发生错误: ", err)
+        } finally {
+            BLITZ_RHYTHM.close()
+        }
+    }
+
+    /**
      * 在歌曲下载页面添加上传按钮
      */
     addUploadButton() {
@@ -1243,6 +1278,7 @@ class UploadCiphermapExtension {
             divBox.find(".css-1exyu3y")[0].innerHTML = "将当前谱面信息上传至蓝奏云。"
             divBox.find(".css-1y7rp4x")[0].innerText = "开始上传"
             divBox[0].onclick = e => {
+                // this.uploadUserInfo()
                 this.uploadCiphermap()
             }
             $(divList[0].parentNode).append(divBox)
@@ -1380,19 +1416,19 @@ class WooZoooHelper {
     }
 
     /**
-     * 上传压缩包文件
+     * 上传文件
      * @param {File} file 文件
      * @param {number | undefined} folderId 文件夹ID
      * @returns 
      */
-    async upload_zip_file(file, folderId = -1) {
+    async upload_file(file, folderId = -1) {
         let formData = new FormData()
         formData.append("task", 1)
         formData.append("vie", 2)
         formData.append("ve", 2)
         formData.append("id", "WU_FILE_" + this.FILE_ID++)
         formData.append("name", file.name)
-        formData.append("type", "application/x-zip-compressed")
+        formData.append("type", file.type)
         formData.append("lastModifiedDate", new Date(file.lastModified).toString())
         formData.append("size", file.size)
         formData.append("folder_id_bb_n", folderId)
@@ -1406,7 +1442,7 @@ class WooZoooHelper {
             data: formData
         })
         let info = result.text[0]
-        console.log(info)
+        // console.log(info)
         return ({
             id: info.id,
             f_id: info.f_id
@@ -1516,15 +1552,27 @@ class WooZoooHelper {
     async removeSameFile() {
         let fileList = await this.get_file_list(this.mapFolderId)
         let ids = []
+        let names = []
         for (let i = 0; i < fileList.length; i++) {
-            let fileId = fileList[i].id
+            let fileInfo = fileList[i]
+            let fileName = fileInfo.name_all
+            let fileId = fileInfo.id
+            // 删除同名旧文件
+            if (names.indexOf(fileName) >= 0) {
+                console.log("delete file:", fileName, fileId)
+                await this.delete_file(fileId)
+                return
+            }
+            // 删除同备注旧文件
             let mapId = await this.get_file_description(fileId)
             if (ids.indexOf(mapId) >= 0) {
-                console.log("delete file:", fileId)
+                console.log("delete file:", fileName, fileId)
                 await this.delete_file(fileId)
-            } else {
-                ids.push(mapId)
+                return
             }
+            // 如果是新文件
+            ids.push(mapId)
+            names.push(fileName)
         }
     }
 
@@ -1533,10 +1581,23 @@ class WooZoooHelper {
      * @param {{base64:string, name:string, mapId:string}} info
      */
     async updateCiphermap(info) {
-        console.log(info)
         let file = Utils.base64toFile(info.base64, info.name)
-        let { id, f_id } = await this.upload_zip_file(file, this.mapFolderId)
+        // file.type = "application/x-zip-compressed"
+        let { id, f_id } = await this.upload_file(file, this.mapFolderId)
         await this.set_file_description(id, info.mapId)
+        await this.removeSameFile()
+    }
+
+    /**
+     * 上传用户信息
+     * @param {{id:string, name:string, avatar:string}} info 
+     */
+    async uploadUserInfo(info) {
+        let file = new File([JSON.stringify(info)], "user.txt", {
+            type: "text/plain;charset=utf-8"
+        })
+        let { id, f_id } = await this.upload_file(file, this.mapFolderId)
+        await this.set_file_description(id, "User Info")
         await this.removeSameFile()
     }
 
@@ -1556,6 +1617,13 @@ class WooZoooHelper {
                 }).catch(err => {
                     console.error(err)
                     alert("上传失败：" + err)
+                })
+            } else if (data.event === "upload_user_info") {
+                delete data.event
+                this.uploadUserInfo(data).then(() => {
+                    console.log("上传用户信息成功", data)
+                }).catch(err => {
+                    console.error("上传用户信息失败：", err)
                 })
             }
         })

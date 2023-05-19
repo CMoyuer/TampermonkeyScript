@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         《闪韵灵境谱面编辑器》功能扩展
 // @namespace    cipher-editor-extension
-// @version      1.1.1
+// @version      1.1.2
 // @description  为《闪韵灵境谱面编辑器》扩展各种实用的功能
 // @author       如梦Nya
 // @license      MIT
@@ -9,7 +9,7 @@
 // @grant        unsafeWindow
 // @match        https://cipher-editor-cn.picovr.com/*
 // @match        https://pc.woozooo.com/*
-// @icon         https://cipher-editor-cn.picovr.com/assets/logo-eabc5412.png
+// @icon         https://cipher-editor-cn.picovr.com/favicon.ico
 // @require      https://code.jquery.com/jquery-3.6.0.min.js
 // ==/UserScript==
 
@@ -1274,8 +1274,8 @@ class UploadCiphermapExtension {
             if ($("#div-upload").length > 0) return
             let divBox = $(divList[0]).clone()
             divBox[0].id = "div-upload"
-            divBox.find(".css-ujbghi")[0].innerHTML = "上传谱面"
-            divBox.find(".css-1exyu3y")[0].innerHTML = "将当前谱面信息上传至蓝奏云。"
+            divBox.find(".css-ujbghi")[0].innerHTML = "上传至网盘"
+            divBox.find(".css-1exyu3y")[0].innerHTML = "将当前谱面信息上传至蓝奏云网盘。"
             divBox.find(".css-1y7rp4x")[0].innerText = "开始上传"
             divBox[0].onclick = e => {
                 // this.uploadUserInfo()

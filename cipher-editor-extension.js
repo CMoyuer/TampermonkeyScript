@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         《闪韵灵境谱面编辑器》功能扩展
 // @namespace    cipher-editor-extension
-// @version      1.1.2
+// @version      1.1.3
 // @description  为《闪韵灵境谱面编辑器》扩展各种实用的功能
 // @author       如梦Nya
 // @license      MIT
@@ -1020,8 +1020,8 @@ class ImportBeatmapExtension {
                 }
             }
             // 开始导入
-            let beatmapInfoStr = await beatmapInfo.files[beatmapInfo.difficulties[tarDifficulty - 1]].async("string")
-            let changeInfo = this.convertBeatMapInfo(beatmapInfo.version, JSON.parse(beatmapInfoStr), songDuration)
+            let difficultyInfo = JSON.parse(await beatmapInfo.files[beatmapInfo.difficulties[tarDifficulty - 1]].async("string"))
+            let changeInfo = this.convertBeatMapInfo(difficultyInfo.version || difficultyInfo._version, difficultyInfo, songDuration)
             datInfo._notes = changeInfo._notes
             datInfo._obstacles = changeInfo._obstacles
             await BLITZ_RHYTHM_files.put("keyvaluepairs", datKey, JSON.stringify(datInfo))
@@ -1684,4 +1684,3 @@ function initLZY() {
         initLZY()
     }
 })()
-

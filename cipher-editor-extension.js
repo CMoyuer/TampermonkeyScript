@@ -1344,6 +1344,53 @@ class UploadCiphermapExtension {
     }
 }
 
+class BeatSageExtension{
+    constructor() {
+
+    }
+
+    importFromBeatSage(){
+        let cipherMapInfo = CipherUtils.getNowBeatmapInfo()
+        console.log(cipherMapInfo)
+        // TODO AI编谱
+    }
+
+    /**
+     * 在顶部菜单添加导入按钮
+     */
+    addImportButton() {
+        if ($("#btnBeatSage").length > 0) return
+        let btnsBoxList = $(".css-4e93fo")
+        if (btnsBoxList.length == 0) return
+        // 按钮模板
+        let btnTemp = $(btnsBoxList[0].childNodes[0])
+        // 按钮1
+        let btnBeatSage = btnTemp.clone()[0]
+        btnBeatSage.id = "btnBeatSage"
+        btnBeatSage.innerHTML = "AI编谱 (BeatSage)"
+        btnBeatSage.onclick = () => { this.importFromBeatSage() }
+        btnBeatSage.style["font-size"] = "13px"
+        // 添加
+        btnsBoxList[0].prepend(btnBeatSage)
+    }
+
+    /**
+     * 初始化
+     */
+    async init() {
+        let timerFunc = () => {
+            CipherUtils.waitLoading().then(() => {
+                this.addImportButton()
+                setTimeout(timerFunc, 1000)
+            }).catch(err => {
+                console.error(err)
+                setTimeout(timerFunc, 1000)
+            })
+        }
+        timerFunc()
+    }
+}
+
 // ============================================================================== 其他网站 ==============================================================================
 
 class WooZoooHelper {
@@ -1640,7 +1687,9 @@ class WooZoooHelper {
 function initEditor() {
     // 加载拓展
     new SearchSongExtension().init()
+    new BeatSageExtension().init()
     new ImportBeatmapExtension().init()
+
     let uploadEx = new UploadCiphermapExtension()
     uploadEx.init()
 

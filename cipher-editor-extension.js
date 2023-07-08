@@ -1,12 +1,15 @@
 // ==UserScript==
 // @name         《闪韵灵境谱面编辑器》功能扩展
 // @namespace    cipher-editor-extension
-// @version      1.1.3
+// @version      1.2.0
 // @description  为《闪韵灵境谱面编辑器》扩展各种实用的功能
 // @author       如梦Nya
 // @license      MIT
 // @run-at       document-body
 // @grant        unsafeWindow
+// @grant        GM_xmlhttpRequest
+// @connect      beatsaver.com
+// @connect      beatsage.com
 // @match        https://cipher-editor-cn.picovr.com/*
 // @match        https://pc.woozooo.com/*
 // @icon         https://cipher-editor-cn.picovr.com/favicon.ico
@@ -30,7 +33,7 @@ class WebDB {
      * 打开数据库
      * @param {string} dbName 数据库名
      * @param {number | undefined} dbVersion 数据库版本
-     * @returns 
+     * @returns {Promise<WebDB, any>}
      */
     open(dbName, dbVersion) {
         let self = this
@@ -49,7 +52,7 @@ class WebDB {
      * 查出一条数据
      * @param {string} tableName 表名
      * @param {string} key 键名
-     * @returns 
+     * @returns {Promise<any, any>}
      */
     get(tableName, key) {
         let self = this
@@ -67,7 +70,7 @@ class WebDB {
      * @param {string} tableName 表名
      * @param {string} key 键名
      * @param {any} value 数据
-     * @returns 
+     * @returns {Promise<any, any>}
      */
     put(tableName, key, value) {
         let self = this
@@ -114,6 +117,33 @@ class CipherUtils {
         let difficulty = matchDifficulty ? matchDifficulty[1] : ""
         return { id, difficulty, beatsaverId }
     }
+
+    /**
+     * 获取歌曲文件
+     * @param {string} id 谱面ID
+     * @returns {Promise<Blob, any>}
+     */
+    static async getSongBlob(id) {
+        let BLITZ_RHYTHM_files = await new WebDB().open("BLITZ_RHYTHM-files")
+        let blob = await BLITZ_RHYTHM_files.get("keyvaluepairs", id + "_song.ogg")
+        BLITZ_RHYTHM_files.close()
+        return blob
+    }
+
+    /**
+     * 获取谱面全部信息
+     * @param {string} id 谱面ID
+     * @returns {object}
+     */
+    static async getCipherMapFullInfo(id) {
+        let BLITZ_RHYTHM = await new WebDB().open("BLITZ_RHYTHM")
+        let rawSongs = await BLITZ_RHYTHM.get("keyvaluepairs", "persist:songs")
+        BLITZ_RHYTHM.close()
+        let songsInfo = JSON.parse(rawSongs)
+        let songsById = JSON.parse(songsInfo.byId)
+        return songsById[id]
+    }
+
     /**
      * 处理歌曲文件
      * @param {ArrayBuffer} rawBuffer 
@@ -255,14 +285,7 @@ class BeatSaverUtils {
             let songInfoMap = {}
             let count = 0
             let cbFlag = false
-            let func = (data, status) => {
-                if (status !== "success") {
-                    if (!cbFlag) {
-                        cbFlag = true
-                        reject("访问BeatSaver时发生错误！")
-                    }
-                    return
-                }
+            let func = data => {
                 // 填充数据
                 data.docs.forEach(rawInfo => {
                     let artist = rawInfo.metadata.songAuthorName
@@ -282,7 +305,11 @@ class BeatSaverUtils {
                 }
             }
             for (let i = 0; i < pageCount; i++) {
-                $.get("https://api.beatsaver.com/search/text/" + i + "?sortOrder=Relevance&q=" + searchKey, func)
+                Utils.ajax({
+                    url: "https://api.beatsaver.com/search/text/" + i + "?sortOrder=Relevance&q=" + searchKey,
+                    method: "GET",
+                    responseType: "json"
+                }).then(func)
             }
         })
     }
@@ -292,28 +319,12 @@ class BeatSaverUtils {
      * 从BeatSaver下载ogg文件
      * @param {number} zipUrl 歌曲压缩包链接
      * @param {function} onprogress 进度回调
-     * @returns {Promise}
+     * @returns {Promise<blob, any>}
      */
-    static downloadSongFile(zipUrl, onprogress) {
-        return new Promise(function (resolve, reject) {
-            let xhr = new XMLHttpRequest()
-            xhr.open('GET', zipUrl, true)
-            xhr.responseType = "blob"
-            xhr.onprogress = onprogress
-            xhr.onload = function () {
-                if (this.status !== 200) {
-                    reject("http code:" + this.status)
-                    return
-                }
-                let blob = new Blob([this.response], { type: "application/zip" })
-                // 解压出ogg文件
-                BeatSaverUtils.getOggFromZip(blob).then(oggBlob => {
-                    resolve(oggBlob)
-                }).catch(reject)
-            }
-            xhr.onerror = reject
-            xhr.send()
-        })
+    static async downloadSongFile(zipUrl, onprogress) {
+        let blob = await Utils.downloadZipFile(zipUrl, onprogress)
+        // 解压出ogg文件
+        return await BeatSaverUtils.getOggFromZip(blob)
     }
 
     /**
@@ -340,15 +351,14 @@ class BeatSaverUtils {
      */
     static getDownloadUrl(id) {
         return new Promise(function (resolve, reject) {
-            $.ajax({
+            Utils.ajax({
                 url: "https://api.beatsaver.com/maps/id/" + id,
-                type: "get",
-                success: (data) => {
-                    resolve(data.versions[0].downloadURL)
-                },
-                error: (req, status, err) => {
-                    reject(req.status + " " + req.responseJSON.error)
-                }
+                method: "GET",
+                responseType: "json",
+            }).then(data => {
+                resolve(data.versions[0].downloadURL)
+            }).catch(err => {
+                reject(err)
             })
         })
     }
@@ -488,19 +498,14 @@ class Utils {
      */
     static downloadZipFile(zipUrl, onprogress) {
         return new Promise(function (resolve, reject) {
-            let xhr = new XMLHttpRequest()
-            xhr.open('GET', zipUrl, true)
-            xhr.responseType = "blob"
-            xhr.onprogress = onprogress
-            xhr.onload = function () {
-                if (this.status !== 200) {
-                    reject("http code:" + this.status)
-                    return
-                }
-                resolve(new Blob([this.response], { type: "application/zip" }))
-            }
-            xhr.onerror = reject
-            xhr.send()
+            Utils.ajax({
+                url: zipUrl,
+                method: "GET",
+                responseType: "blob",
+                onprogress,
+            }).then(data => {
+                resolve(new Blob([data], { type: "application/zip" }))
+            }).catch(reject)
         })
     }
 
@@ -511,13 +516,22 @@ class Utils {
      */
     static ajax(config) {
         return new Promise((resolve, reject) => {
-            config.success = (result, status, xhr) => {
-                resolve({ result, status, xhr })
+            config.onload = res => {
+                if (res.status >= 200 && res.status < 300) {
+                    try {
+                        resolve(JSON.parse(res.response))
+                    } catch {
+                        resolve(res.response)
+                    }
+                }
+                else {
+                    reject("HTTP Code: " + res.status)
+                }
             }
-            config.error = (xhr, status, error) => {
-                reject({ xhr, status, error })
+            config.onerror = err => {
+                reject(err)
             }
-            $.ajax(config)
+            GM_xmlhttpRequest(config)
         })
     }
 
@@ -965,8 +979,9 @@ class ImportBeatmapExtension {
      * 从BeatSaber谱面压缩包导入信息
      * @param {Blob} zipBlob
      * @param {{id:string, difficulty:string, beatsaverId:string}} nowBeatmapInfo
+     * @param {number} targetDifficulty
      */
-    async importBeatmap(zipBlob, nowBeatmapInfo) {
+    async importBeatmap(zipBlob, nowBeatmapInfo, targetDifficulty) {
         let BLITZ_RHYTHM = await new WebDB().open("BLITZ_RHYTHM")
         let BLITZ_RHYTHM_files = await new WebDB().open("BLITZ_RHYTHM-files")
         try {
@@ -995,7 +1010,9 @@ class ImportBeatmapExtension {
 
             // 选择导入难度
             let tarDifficulty = 1
-            {
+            if (targetDifficulty >= 1 && targetDifficulty <= beatmapInfo.difficulties.length) {
+                tarDifficulty = targetDifficulty
+            } else {
                 let defaultDifficulty = "1"
                 let promptTip = ""
                 for (let index in beatmapInfo.difficulties) {
@@ -1344,15 +1361,65 @@ class UploadCiphermapExtension {
     }
 }
 
-class BeatSageExtension{
+class BeatSageExtension {
     constructor() {
 
     }
 
-    importFromBeatSage(){
+    async importFromBeatSage() {
+        let flag = confirm("1.本功能由BeatSage网站免费提供, BeatSage拥有该功能的所有权。\r\n2.因服务器在境外, 速度与网络环境密切相关, 正常编谱需要2分钟时间。\r\n3.因AI做谱需要耗费大量服务器算力, 喜欢该功能的欢迎前往BeatSage.com官网进行打赏支持。\r\n4.点击“确认”键继续。")
+        if (!flag) return
         let cipherMapInfo = CipherUtils.getNowBeatmapInfo()
-        console.log(cipherMapInfo)
-        // TODO AI编谱
+        let oggBlob = await CipherUtils.getSongBlob(cipherMapInfo.id)
+        let formData = new FormData()
+        formData.append("audio_file", oggBlob)
+        formData.append("audio_metadata_title", "song")
+        formData.append("audio_metadata_artist", "auther")
+        formData.append("difficulties", cipherMapInfo.difficulty)
+        formData.append("modes", "Standard")
+        formData.append("events", "DotBlocks")
+        formData.append("environment", "DefaultEnvironment")
+        formData.append("system_tag", "v2")
+        // 发起AI编谱任务
+        console.log("正在发起AI编谱任务...")
+        let result = await Utils.ajax({
+            url: "https://beatsage.com/beatsaber_custom_level_create",
+            method: "POST",
+            responseType: "json",
+            data: formData,
+            contentType: false,
+            processData: false,
+        })
+        console.log("歌曲上传成功, 任务ID为: " + result.id)
+        let reqUrl = "https://beatsage.com/beatsaber_custom_level_heartbeat/" + result.id
+        let downloadUrl = "https://beatsage.com/beatsaber_custom_level_download/" + result.id
+        // 定时查询是否完成
+        let taskDone = false
+        console.log("正在确认任务进度...")
+        while (!taskDone) {
+            await new Promise((resolve, _) => {
+                setTimeout(resolve, 5 * 1000)
+            })
+            let result = await Utils.ajax({
+                url: reqUrl,
+                method: "GET",
+                responseType: "json"
+            })
+            if (result.status !== "PENDING") {
+                if (result.status === "DONE") {
+                    console.log("谱面生成完成, 开始下载文件...")
+                    let beatmapZip = await Utils.downloadZipFile(downloadUrl, () => { })
+                    // 导入谱面
+                    await new ImportBeatmapExtension().importBeatmap(beatmapZip, cipherMapInfo, 1)
+                } else {
+                    console.log("发生未知错误: " + result.status)
+                    throw "Task Failed: " + result.status
+                }
+                taskDone = true
+            } else {
+                console.log("谱面正在生成...")
+            }
+        }
     }
 
     /**
@@ -1368,7 +1435,15 @@ class BeatSageExtension{
         let btnBeatSage = btnTemp.clone()[0]
         btnBeatSage.id = "btnBeatSage"
         btnBeatSage.innerHTML = "AI编谱 (BeatSage)"
-        btnBeatSage.onclick = () => { this.importFromBeatSage() }
+        btnBeatSage.onclick = () => {
+            CipherUtils.showLoading()
+            this.importFromBeatSage().catch(err => {
+                console.error(err)
+                alert("AI编谱时发生错误! 详情请查看Console")
+            }).finally(() => {
+                CipherUtils.hideLoading()
+            })
+        }
         btnBeatSage.style["font-size"] = "13px"
         // 添加
         btnsBoxList[0].prepend(btnBeatSage)
@@ -1412,8 +1487,9 @@ class WooZoooHelper {
         let formData = new FormData()
         formData.append("task", 47)
         formData.append("folder_id", folderId)
-        let { result, status, xhr } = await Utils.ajax({
-            type: "post",
+        let result = await Utils.ajax({
+            method: "POST",
+            responseType: "json",
             contentType: false,
             processData: false,
             url: "/doupload.php",
@@ -1436,11 +1512,12 @@ class WooZoooHelper {
         formData.append("folder_name", name)
         formData.append("folder_description", description)
 
-        let { result, status, xhr } = await Utils.ajax({
-            type: "post",
+        let result = await Utils.ajax({
+            url: "/doupload.php",
+            method: "POST",
+            responseType: "json",
             contentType: false,
             processData: false,
-            url: "/doupload.php",
             data: formData
         })
         return { folderId: result.text }
@@ -1481,15 +1558,15 @@ class WooZoooHelper {
         formData.append("folder_id_bb_n", folderId)
         formData.append("upload_file", file)
 
-        let { result, status, xhr } = await Utils.ajax({
-            type: "post",
+        let result = await Utils.ajax({
+            url: "/html5up.php",
+            method: "POST",
+            responseType: "json",
             contentType: false,
             processData: false,
-            url: "/html5up.php",
             data: formData
         })
         let info = result.text[0]
-        // console.log(info)
         return ({
             id: info.id,
             f_id: info.f_id
@@ -1506,11 +1583,12 @@ class WooZoooHelper {
         formData.append("task", 12)
         formData.append("file_id", fileId)
 
-        let { result, status, xhr } = await Utils.ajax({
-            type: "post",
+        let result = await Utils.ajax({
+            url: "/doupload.php",
+            method: "POST",
+            responseType: "json",
             contentType: false,
             processData: false,
-            url: "/doupload.php",
             data: formData
         })
         return result.info
@@ -1528,11 +1606,12 @@ class WooZoooHelper {
         formData.append("file_id", fileId)
         formData.append("desc", description)
 
-        let { result, status, xhr } = await Utils.ajax({
-            type: "post",
+        let result = await Utils.ajax({
+            url: "/doupload.php",
+            method: "POST",
+            responseType: "json",
             contentType: false,
             processData: false,
-            url: "/doupload.php",
             data: formData
         })
         return result.info
@@ -1548,11 +1627,12 @@ class WooZoooHelper {
         formData.append("task", 6)
         formData.append("file_id", fileId)
 
-        let { result, status, xhr } = await Utils.ajax({
-            type: "post",
+        let result = await Utils.ajax({
+            url: "/doupload.php",
+            method: "POST",
+            responseType: "json",
             contentType: false,
             processData: false,
-            url: "/doupload.php",
             data: formData
         })
     }
@@ -1583,8 +1663,9 @@ class WooZoooHelper {
         formData.append("vei", this.get_vei())
         formData.append("task", 5)
         formData.append("folder_id", folderId)
-        let { result, status, xhr } = await Utils.ajax({
-            type: "post",
+        let result = await Utils.ajax({
+            method: "POST",
+            responseType: "json",
             contentType: false,
             processData: false,
             url: "/doupload.php?uid=" + this.get_uid(),

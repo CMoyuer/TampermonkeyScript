@@ -1383,10 +1383,14 @@ class BeatSageExtension {
         let cipherMapInfo = CipherUtils.getNowBeatmapInfo()
         let oggBlob = await CipherUtils.getSongBlob(cipherMapInfo.id)
         let formData = new FormData()
+        let rawDiffList = ["Easy", "Normal", "Hard", "Expert"]
+        let tarDiffList = ["Normal", "Hard", "Expert", "Expert+"]
+        let tarDifficulty = tarDiffList[rawDiffList.indexOf(cipherMapInfo.difficulty)]
+        console.log(tarDifficulty)
         formData.append("audio_file", oggBlob)
         formData.append("audio_metadata_title", "song")
         formData.append("audio_metadata_artist", "auther")
-        formData.append("difficulties", cipherMapInfo.difficulty)
+        formData.append("difficulties", tarDifficulty)
         formData.append("modes", "Standard")
         formData.append("events", "DotBlocks")
         formData.append("environment", "DefaultEnvironment")

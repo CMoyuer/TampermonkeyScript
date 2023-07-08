@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         《闪韵灵境谱面编辑器》功能扩展
 // @namespace    cipher-editor-extension
-// @version      1.2.0
+// @version      1.2.1
 // @description  为《闪韵灵境谱面编辑器》扩展各种实用的功能
 // @author       如梦Nya
 // @license      MIT
@@ -124,9 +124,20 @@ class CipherUtils {
      * @returns {Promise<Blob, any>}
      */
     static async getSongBlob(id) {
-        let BLITZ_RHYTHM_files = await new WebDB().open("BLITZ_RHYTHM-files")
-        let blob = await BLITZ_RHYTHM_files.get("keyvaluepairs", id + "_song.ogg")
-        BLITZ_RHYTHM_files.close()
+        let cipherMapFullInfo = await CipherUtils.getCipherMapFullInfo(id)
+        let songFileName = cipherMapFullInfo.songFilename + ""
+        let blob
+        if (songFileName.split("_").length > 2) {
+            // 自定义谱
+            let BLITZ_RHYTHM_files = await new WebDB().open("BLITZ_RHYTHM-files")
+            blob = await BLITZ_RHYTHM_files.get("keyvaluepairs", songFileName)
+            BLITZ_RHYTHM_files.close()
+        } else {
+            // 官谱
+            let BLITZ_RHYTHM_official = await new WebDB().open("BLITZ_RHYTHM-official")
+            blob = await BLITZ_RHYTHM_official.get("keyvaluepairs", songFileName)
+            BLITZ_RHYTHM_official.close()
+        }
         return blob
     }
 
@@ -1367,7 +1378,7 @@ class BeatSageExtension {
     }
 
     async importFromBeatSage() {
-        let flag = confirm("1.本功能由BeatSage网站免费提供, BeatSage拥有该功能的所有权。\r\n2.因服务器在境外, 速度与网络环境密切相关, 正常编谱需要2分钟时间。\r\n3.因AI做谱需要耗费大量服务器算力, 喜欢该功能的欢迎前往BeatSage.com官网进行打赏支持。\r\n4.点击“确认”键继续。")
+        let flag = confirm("1.本功能由BeatSage网站免费提供, BeatSage拥有该功能的所有权。\r\n2.因服务器在境外, 速度与网络环境相关, 一般编谱需要2分钟时间。\r\n3.AI做谱需要大量服务器算力, 喜欢该功能的欢迎前往BeatSage.com官网进行打赏支持。\r\n4.点击“确认”键继续。")
         if (!flag) return
         let cipherMapInfo = CipherUtils.getNowBeatmapInfo()
         let oggBlob = await CipherUtils.getSongBlob(cipherMapInfo.id)

@@ -11,6 +11,7 @@
 // @connect      beatsaver.com
 // @connect      beatsage.com
 // @match        https://cipher-editor-cn.picovr.com/*
+// @match        https://beatsaver.com/*
 // @match        https://pc.woozooo.com/*
 // @icon         https://cipher-editor-cn.picovr.com/favicon.ico
 // @require      https://code.jquery.com/jquery-3.6.0.min.js
@@ -26,6 +27,7 @@ let JSZip = undefined
  */
 class WebDB {
     constructor() {
+        /** @type {IDBDatabase} */
         this.db = undefined
     }
 
@@ -38,14 +40,15 @@ class WebDB {
     open(dbName, dbVersion) {
         let self = this
         return new Promise(function (resolve, reject) {
+            /** @type {IDBFactory} */
             const indexDB = unsafeWindow.indexedDB || unsafeWindow.webkitIndexedDB || unsafeWindow.mozIndexedDB
             let req = indexDB.open(dbName, dbVersion)
             req.onerror = reject
-            req.onsuccess = function (e) {
-                self.db = e.target.result
+            req.onsuccess = function () {
+                self.db = this.result
                 resolve(self)
             }
-        });
+        })
     }
 
     /**
@@ -59,10 +62,10 @@ class WebDB {
         return new Promise(function (resolve, reject) {
             let req = self.db.transaction([tableName]).objectStore(tableName).get(key)
             req.onerror = reject
-            req.onsuccess = function (e) {
-                resolve(e.target.result)
+            req.onsuccess = function () {
+                resolve(this.result)
             }
-        });
+        })
     }
 
     /**
@@ -70,17 +73,17 @@ class WebDB {
      * @param {string} tableName 表名
      * @param {string} key 键名
      * @param {any} value 数据
-     * @returns {Promise<any, any>}
+     * @returns {Promise<IDBValidKey, any>}
      */
     put(tableName, key, value) {
         let self = this
         return new Promise(function (resolve, reject) {
             let req = self.db.transaction([tableName], 'readwrite').objectStore(tableName).put(value, key)
             req.onerror = reject
-            req.onsuccess = function (e) {
-                resolve(e.target.result)
+            req.onsuccess = function () {
+                resolve(this.result)
             }
-        });
+        })
     }
 
     /**
@@ -119,29 +122,6 @@ class CipherUtils {
     }
 
     /**
-     * 获取歌曲文件
-     * @param {string} id 谱面ID
-     * @returns {Promise<Blob, any>}
-     */
-    static async getSongBlob(id) {
-        let cipherMapFullInfo = await CipherUtils.getCipherMapFullInfo(id)
-        let songFileName = cipherMapFullInfo.songFilename + ""
-        let blob
-        if (songFileName.split("_").length > 2) {
-            // 自定义谱
-            let BLITZ_RHYTHM_files = await new WebDB().open("BLITZ_RHYTHM-files")
-            blob = await BLITZ_RHYTHM_files.get("keyvaluepairs", songFileName)
-            BLITZ_RHYTHM_files.close()
-        } else {
-            // 官谱
-            let BLITZ_RHYTHM_official = await new WebDB().open("BLITZ_RHYTHM-official")
-            blob = await BLITZ_RHYTHM_official.get("keyvaluepairs", songFileName)
-            BLITZ_RHYTHM_official.close()
-        }
-        return blob
-    }
-
-    /**
      * 获取谱面全部信息
      * @param {string} id 谱面ID
      * @returns {object}
@@ -156,11 +136,34 @@ class CipherUtils {
     }
 
     /**
-     * 处理歌曲文件
-     * @param {ArrayBuffer} rawBuffer 
-     * @returns 
+     * 获取指定谱面的歌曲OGG资源
+     * @param {string} id 谱面ID
+     * @returns {Promise<Blob, any>}
      */
-    static applySongFile(rawBuffer) {
+    static async getSongBlob(id) {
+        let info = await CipherUtils.getCipherMapFullInfo(id)
+        let songFileName = info.songFilename + ""
+        let blob
+        if (info.officialId) {
+            // 官谱
+            let BLITZ_RHYTHM_official = await new WebDB().open("BLITZ_RHYTHM-official")
+            blob = await BLITZ_RHYTHM_official.get("keyvaluepairs", songFileName)
+            BLITZ_RHYTHM_official.close()
+        } else {
+            // 自定义谱
+            let BLITZ_RHYTHM_files = await new WebDB().open("BLITZ_RHYTHM-files")
+            blob = await BLITZ_RHYTHM_files.get("keyvaluepairs", songFileName)
+            BLITZ_RHYTHM_files.close()
+        }
+        return blob
+    }
+
+    /**
+     * 添加歌曲校验数据头
+     * @param {ArrayBuffer} rawBuffer 
+     * @returns {Blob}
+     */
+    static addSongVerificationCode(rawBuffer) {
         // 前面追加数据，以通过校验
         let rawData = new Uint8Array(rawBuffer)
         let BYTE_VERIFY_ARRAY = [235, 186, 174, 235, 186, 174, 235, 186, 174, 85, 85]
@@ -191,6 +194,21 @@ class CipherUtils {
     }
 
     /**
+     * 获取页面参数
+     * @returns 
+     */
+    static getPageParmater() {
+        let url = window.location.href
+        let matchs = url.match(/\?import=(\w{1,})@\w{1,}/)
+        if (!matchs) return
+        return {
+            event: "import",
+            source: matchs[1],
+            id: matchs[2]
+        }
+    }
+
+    /**
      * 关闭编辑器顶部菜单
      */
     static closeEditorTopMenu() {
@@ -201,7 +219,7 @@ class CipherUtils {
      * 显示Loading
      */
     static showLoading() {
-        $("main").append('<div class="css-c81162"><span class="MuiCircularProgress-root MuiCircularProgress-indeterminate MuiCircularProgress-colorPrimary css-11gk5wa" role="progressbar" style="width: 40px; height: 40px;"><svg class="MuiCircularProgress-svg css-13o7eu2" viewBox="22 22 44 44"><circle class="MuiCircularProgress-circle MuiCircularProgress-circleIndeterminate css-14891ef" cx="44" cy="44" r="20.2" fill="none" stroke-width="3.6"></circle></svg></span></div>')
+        $("main").append('<div class="css-c81162" style="background-color:#000000A0"><span class="MuiCircularProgress-root MuiCircularProgress-indeterminate MuiCircularProgress-colorPrimary css-11gk5wa" role="progressbar" style="width:40px;height:40px"><svg class="MuiCircularProgress-svg css-13o7eu2" viewBox="22 22 44 44"><circle class="MuiCircularProgress-circle MuiCircularProgress-circleIndeterminate css-14891ef" cx="44" cy="44" r="20.2" fill="none" stroke-width="3.6"></circle></svg></span></div>')
     }
 
     /**
@@ -352,7 +370,7 @@ class BeatSaverUtils {
             break
         }
         let rawBuffer = await eggFile.async("arraybuffer")
-        return CipherUtils.applySongFile(rawBuffer)
+        return CipherUtils.addSongVerificationCode(rawBuffer)
     }
 
     /**
@@ -1444,7 +1462,7 @@ class BeatSageExtension {
         let btnsBoxList = $(".css-4e93fo")
         if (btnsBoxList.length == 0) return
         // 按钮模板
-        let btnTemp = $(btnsBoxList[0].childNodes[0])
+        let btnTemp = $(btnsBoxList[0].childNodes[1])
         // 按钮1
         let btnBeatSage = btnTemp.clone()[0]
         btnBeatSage.id = "btnBeatSage"
@@ -1774,6 +1792,70 @@ class WooZoooHelper {
     }
 }
 
+class BeatsaverHelper {
+
+    constructor() {
+
+    }
+
+    /**
+     * 添加导入按钮
+     */
+    addImportButton() {
+        // 首页
+        let mapInfoList = $(".beatmap")
+        let logoStr = '<img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABkAAAAZCAYAAADE6YVjAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAARZSURBVHgBzVVbbFRVFF373nm0My3TB0X6UGsEtUKjYEqJgBFjiB8+Eg1GUakfxA/jI/qjxhiqiVjQgNiQ2Nhq4kclhQCtEcWGYMSkApaQ1Ja+EttSWlv6yNB5dGbuPdt9h5lJZxin+GPYycrknFlnr7sf52zgfzDCfzT7Pl5revAUSlEEOxzqKgKYxoCT8WNoBw3GebZjDDA2Fc6Y+TcsYmvmR8wSPsCluAfL5JjT2hRoAkMwLhhAB2bxNcqwktz8nHbIKHAcDdVkdHz1+balYNZwxNyLM4rRIxgVzDJjXmAIlIBTcEU4bweHUBZYlzFdvDNQxnlzP/VPjJ28t7qyRhVqHuTJHx5BjhxzWbmLRbLQy5ikaXfwPNrCz2Aof8ja0tMKtLCOIns7LXffvxS51ZOBme5zLlcJXDFvTNcEUkV6TeATfyM6vTXovmU87i9tJHyY6+DAO/F1eGAu8HiB6m+PZK9CJNQLpUwUOSqw0elEiRb1QhcMpvrgp6op910Q8UJ/2nUCdeyRQy9BySIGR3mu6/suz2/4I/IAXs29DxfDa3DaV4kT/uNSH9DJCBp+jrBJM8OpAmkj4Xp+BcVoSPpnEn04hgfpBM0k9mpZcs3OUjJ+PZxjq6q6jQh/+sfwobuMsEgk0pYboxGYMYQFPnyZJGB9jFs61013DS+z51fdKgKW2zJXMbZPP5nq8nqRECoTAhasO3Ap4k0S+Jgt8S0oQJt03MoE10WkCjxrM4q0bG3ReZ4Lk0Qs0ynpQjV3Nudj1jwqH1CexBVtLcdWmVGkZ1UPIyJUIxaBETt8u+0h3m7WxXnburd5YeqfY0QhiWtBl/gyidTW1ioKy8MQkcVChKWSA3ghQSyWqvWhVo5fiNZsIVcDZxSxzBxVXVLouHO5wdLFTaqXOrRNcQ79Iq23RhiEI2lEJhYVIQ+dNYclR35ZjABTrWb7XJ9vg7TlUJzD0r5yWQlZWBF1HIohGE11x6IiGmmNBhlXWKgHpE0r9+pm3jdLDHwXy8IXjBcd8juHOyX/jyYEQrHIFX5fPJI3EdS9zt1vSHJefx+YqMJjVI5WYa5AhyKJIOugC5tDo0adGlUlSSIK5/ERzqb6tCWtpthKU4ljP7ZwDqItGZ0b1XgYl2VaTMmAWs1Ok6BvDen9B7vCfidsbt2jW11lSi13UZpnJfEK2wIyGiKokAb8QZ7x9VGBOF3FxLLl3dUlJqlDvweFpo/61l3yLdOzdQjqaRftQxqLpkubj3rbgHyclnRUJDUhpyB+KgvYc4fKyx5x78fd+ApevId/M1dDCFqQX6MpFcIZQ+GU4LJMtpBMOFMQEQT42jS09i8KTpmMPcYkng3uYGJNhmHGMU4i8kGQsZP/No7DZ7bCoUVQpD2N5fYnUKwRCjUrqSTV4OgNH2QTo2jCuP8zHPIM4gaM7C9710ds+l9ozEm+RG95C6CyNkvXrNaIchXTLObRCRU8h2+XTONms38AWqb3YtH4f5MAAAAASUVORK5CYII=" width="15px" height="15px">'
+        if (mapInfoList && mapInfoList.length > 0) {
+            for (let a = 0; a < mapInfoList.length; a++) {
+                let mapInfoNode = mapInfoList[a]
+                let linkBoxs = $(mapInfoNode).find(".links")
+                if (!linkBoxs || linkBoxs.length != 1) continue
+                let link2 = linkBoxs.clone()[0]
+                $(link2).insertAfter(linkBoxs[0])
+                let btnList = $(link2).find("a")
+
+                let btnImport = $(btnList[2]).clone()[0]
+                let url = "https://cipher-editor-cn.picovr.com/?import=beatsaver@" + btnImport.href.match(/^beatsaver:\/\/(\w{1,})$/)[1]
+                btnImport.ariaLabel = btnImport.title = "导入到闪韵灵境谱面编辑器（仅歌曲）"
+                btnImport.href = url + "&mode=song"
+                btnImport.target = "_blank"
+                $(btnImport).empty()
+                $(btnImport).append(logoStr)
+
+                let btnImportAll = $(btnImport).clone()[0]
+                btnImportAll.href = url + "&mode=all"
+                btnImportAll.target = "_blank"
+                btnImportAll.ariaLabel = btnImportAll.title = "导入到闪韵灵境谱面编辑器（含音符）"
+                $(btnImportAll).empty()
+                $(btnImportAll).append(logoStr)
+
+                btnList.remove()
+                link2.append(btnImport)
+                link2.append(btnImportAll)
+            }
+        }
+        // 歌曲详情页
+        let btnBoxList = $(".ms-auto")
+        let btnList = btnBoxList.find("a")
+        if (btnList && btnList.length < 5) {
+            let url = "https://cipher-editor-cn.picovr.com/?import=beatsaver@" + location.href.match(/^https:\/\/beatsaver\.com\/maps\/(\w{1,})/)[1]
+            let btn1 = $('<a href="' + url + '&mode=song" rel="noopener" target="_blank" title="导入到闪韵灵境谱面编辑器（仅歌曲）" aria-label="导入到闪韵灵境谱面编辑器（仅歌曲）"></a>')
+            btn1.append(logoStr)
+            btnBoxList.append(btn1)
+            let btn2 = $('<a href="' + url + '&mode=all" rel="noopener" target="_blank" title="导入到闪韵灵境谱面编辑器（含音符）" aria-label="导入到闪韵灵境谱面编辑器（含音符）"></a>')
+            btn2.append(logoStr)
+            btnBoxList.append(btn2)
+        }
+    }
+
+    /**
+     * 初始化
+     */
+    async init() {
+        setInterval(this.addImportButton, 500)
+    }
+}
+
 // ================================================================================ 入口 ================================================================================
 
 /**
@@ -1795,7 +1877,7 @@ function initEditor() {
         if (!data || !data.event) return
         if (data.event === "alive" && event.origin.indexOf("pc.woozooo.com") > 0) {
             uploadEx._ready = true
-            console.log(event)
+            // console.log(event)
         }
     })
     window.addEventListener("beforeunload", () => {
@@ -1812,19 +1894,28 @@ function initLZY() {
 }
 
 /**
+ * BeatSaver
+ */
+function initBeatsaver() {
+    new BeatsaverHelper().init()
+}
+
+/**
  * 主入口
  */
 (async function () {
     'use strict';
 
-    // 依赖库
-    const sandBox = SandBox.getDocument()
-    await SandBox.dynamicLoadJs("https://cmoyuer.gitee.io/my-resources/js/jszip.min.js")
-    JSZip = sandBox.contentWindow.JSZip
-
     if (location.href.indexOf("cipher-editor-cn.picovr.com") > 0) {
+        // 依赖库
+        const sandBox = SandBox.getDocument()
+        await SandBox.dynamicLoadJs("https://cmoyuer.gitee.io/my-resources/js/jszip.min.js")
+        JSZip = sandBox.contentWindow.JSZip
+
         initEditor()
     } else if (location.href.indexOf("pc.woozooo.com/mydisk.php") > 0) {
         initLZY()
+    } else if (location.href.indexOf("beatsaver.com") > 0) {
+        initBeatsaver()
     }
 })()

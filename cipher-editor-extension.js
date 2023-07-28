@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         《闪韵灵境谱面编辑器》功能扩展
 // @namespace    cipher-editor-extension
-// @version      1.2.1
+// @version      1.3.0
 // @description  为《闪韵灵境谱面编辑器》扩展各种实用的功能
 // @author       如梦Nya
 // @license      MIT
@@ -199,12 +199,13 @@ class CipherUtils {
      */
     static getPageParmater() {
         let url = window.location.href
-        let matchs = url.match(/\?import=(\w{1,})@\w{1,}/)
+        let matchs = url.match(/\?import=(\w{1,})@(\w{1,})@(\w{1,})/)
         if (!matchs) return
         return {
             event: "import",
             source: matchs[1],
-            id: matchs[2]
+            id: matchs[2],
+            mode: matchs[3],
         }
     }
 
@@ -219,14 +220,16 @@ class CipherUtils {
      * 显示Loading
      */
     static showLoading() {
-        $("main").append('<div class="css-c81162" style="background-color:#000000A0"><span class="MuiCircularProgress-root MuiCircularProgress-indeterminate MuiCircularProgress-colorPrimary css-11gk5wa" role="progressbar" style="width:40px;height:40px"><svg class="MuiCircularProgress-svg css-13o7eu2" viewBox="22 22 44 44"><circle class="MuiCircularProgress-circle MuiCircularProgress-circleIndeterminate css-14891ef" cx="44" cy="44" r="20.2" fill="none" stroke-width="3.6"></circle></svg></span></div>')
+        let maskBox = $('<div style="position:fixed;top:0;left:0;width:100%;height:100%;background-color:rgba(0,0,0,0.5);z-index:9999;" id="loading"></div>')
+        maskBox.append('<span style="display: block;position: absolute;width:40px;height:40px;left: calc(50vw - 20px);top: calc(50vh - 20px);"><svg viewBox="22 22 44 44"><circle cx="44" cy="44" r="20.2" fill="none" stroke-width="3.6" class="css-14891ef"></circle></svg></span>')
+        $("#root").append(maskBox)
     }
 
     /**
      * 隐藏Loading
      */
     static hideLoading() {
-        $(".css-c81162").remove()
+        $("#loading").remove()
     }
 
     /**
@@ -359,9 +362,10 @@ class BeatSaverUtils {
     /**
      * 从压缩包中提取出ogg文件
      * @param {blob} zipBlob 
+     * @param {boolean | undefined} verification 
      * @returns 
      */
-    static async getOggFromZip(zipBlob) {
+    static async getOggFromZip(zipBlob, verification = true) {
         let zip = await JSZip.loadAsync(zipBlob)
         let eggFile = undefined
         for (let fileName in zip.files) {
@@ -369,8 +373,12 @@ class BeatSaverUtils {
             eggFile = zip.file(fileName)
             break
         }
-        let rawBuffer = await eggFile.async("arraybuffer")
-        return CipherUtils.addSongVerificationCode(rawBuffer)
+        if (verification) {
+            let rawBuffer = await eggFile.async("arraybuffer")
+            return CipherUtils.addSongVerificationCode(rawBuffer)
+        } else {
+            return await eggFile.async("blob")
+        }
     }
 
     /**
@@ -419,18 +427,22 @@ class BeatSaverUtils {
         }
         // 难度对应文件名
         let beatmapInfo = {
+            raw: rawBeatmapInfo,
             version: rawBeatmapInfo._version,
             levelAuthorName: rawBeatmapInfo._levelAuthorName,
-            difficulties: [],
-            files: {}
+            difficulties: []
         }
         for (let index in difficultyBeatmaps) {
             let difficultyInfo = difficultyBeatmaps[index]
-            let diffName = difficultyInfo._difficulty
+            let difficulty = difficultyInfo._difficulty
+            let difficultyLabel = ""
             if (difficultyInfo._customData && difficultyInfo._customData._difficultyLabel)
-                diffName = difficultyInfo._customData._difficultyLabel
-            beatmapInfo.difficulties.push(diffName)
-            beatmapInfo.files[diffName] = zip.files[difficultyInfo._beatmapFilename]
+                difficultyLabel = difficultyInfo._customData._difficultyLabel
+            beatmapInfo.difficulties.push({
+                difficulty,
+                difficultyLabel,
+                file: zip.files[difficultyInfo._beatmapFilename]
+            })
         }
         return beatmapInfo
     }
@@ -535,6 +547,34 @@ class Utils {
             }).then(data => {
                 resolve(new Blob([data], { type: "application/zip" }))
             }).catch(reject)
+        })
+    }
+
+    /**
+     * 获取音乐文件时长
+     * @param {Blob} blob 
+     */
+    static getOggDuration(blob) {
+        return new Promise((resolve, reject) => {
+            let ifDoc = SandBox.getDocument().contentDocument
+
+            let audio = ifDoc.createElement('audio')
+            audio.addEventListener("loadedmetadata", () => {
+                resolve(audio.duration)
+                // $(audio).remove()
+            })
+            audio.addEventListener('error', () => {
+                reject(audio.error)
+            })
+
+            let reader = new FileReader()
+            reader.onerror = () => {
+                reject(reader.error)
+            }
+            reader.onload = (e) => {
+                audio.src = e.target.result
+            }
+            reader.readAsDataURL(new File([blob], "song.ogg", { type: "audio/ogg" }))
         })
     }
 
@@ -1044,13 +1084,14 @@ class ImportBeatmapExtension {
             } else {
                 let defaultDifficulty = "1"
                 let promptTip = ""
+                console.log(beatmapInfo.difficulties)
                 for (let index in beatmapInfo.difficulties) {
-                    if (index > 0) promptTip += "、"
-                    promptTip += beatmapInfo.difficulties[index]
+                    if (index > 0) promptTip += "\r\n"
+                    promptTip += (parseInt(index) + 1) + "." + beatmapInfo.difficulties[index].difficulty
                 }
                 let difficulty = ""
                 while (true) {
-                    difficulty = prompt("请问要导入第几个难度（数字）：" + promptTip, defaultDifficulty)
+                    difficulty = prompt("请问要导入第几个难度（数字）：\r\n" + promptTip, defaultDifficulty)
                     if (!difficulty) {
                         // Cancel
                         CipherUtils.hideLoading()
@@ -1066,7 +1107,7 @@ class ImportBeatmapExtension {
                 }
             }
             // 开始导入
-            let difficultyInfo = JSON.parse(await beatmapInfo.files[beatmapInfo.difficulties[tarDifficulty - 1]].async("string"))
+            let difficultyInfo = JSON.parse(await beatmapInfo.difficulties[tarDifficulty - 1].file.async("string"))
             let changeInfo = this.convertBeatMapInfo(difficultyInfo.version || difficultyInfo._version, difficultyInfo, songDuration)
             datInfo._notes = changeInfo._notes
             datInfo._obstacles = changeInfo._obstacles
@@ -1171,16 +1212,210 @@ class ImportBeatmapExtension {
         return info
     }
 
+    async ApplyPageParmater() {
+        let BLITZ_RHYTHM = await new WebDB().open("BLITZ_RHYTHM")
+        let BLITZ_RHYTHM_files = await new WebDB().open("BLITZ_RHYTHM-files")
+        try {
+            let pagePar = CipherUtils.getPageParmater()
+            if (!pagePar) return
+
+            if (pagePar.event === "import") {
+                if (pagePar.source === "beatsaver") {
+                    CipherUtils.showLoading()
+                    if (pagePar.mode !== "song" && pagePar.mode !== "all") return
+                    let zipUrl = await BeatSaverUtils.getDownloadUrl(pagePar.id)
+                    let zipBlob = await Utils.downloadZipFile(zipUrl)
+                    let beatsaverInfo = await BeatSaverUtils.getBeatmapInfo(zipBlob)
+                    // console.log(beatsaverInfo)
+                    let oggBlob = await BeatSaverUtils.getOggFromZip(zipBlob, false)
+
+                    let zip = await JSZip.loadAsync(zipBlob)
+                    let coverBlob = await zip.file(beatsaverInfo.raw._coverImageFilename).async("blob")
+                    let coverType = beatsaverInfo.raw._coverImageFilename.match(/.(\w{1,})$/)[1]
+
+                    let rawUserStr = await BLITZ_RHYTHM.get("keyvaluepairs", "persist:user")
+                    let userName = JSON.parse(JSON.parse(rawUserStr).userInfo).name
+
+                    // Date to ID
+                    let date = new Date()
+                    let dateArray = [date.getFullYear().toString().padStart(4, "0"), (date.getMonth() + 1).toString().padStart(2, "0"), date.getDate().toString().padStart(2, "0"),
+                    date.getHours().toString().padStart(2, "0"), date.getMinutes().toString().padStart(2, "0"),
+                    date.getSeconds().toString().padStart(2, "0") + date.getMilliseconds().toString().padStart(3, "0") + (Math.floor(Math.random() * Math.pow(10, 11))).toString().padStart(11, "0")]
+                    let id = dateArray.join("_")
+
+                    let selectedDifficulty = "Easy"
+
+                    // Apply Info
+                    let cipherMapInfo = {
+                        id,
+                        officialId: "",
+                        name: "[" + pagePar.id + "]" + beatsaverInfo.raw._songName,
+                        // subName: beatsaverInfo.raw._songSubName,
+                        artistName: beatsaverInfo.raw._songAuthorName,
+                        mapAuthorName: userName + ((pagePar.mode === "all") ? (" & " + beatsaverInfo.raw._levelAuthorName) : ""),
+                        bpm: beatsaverInfo.raw._beatsPerMinute,
+                        offset: beatsaverInfo.raw._songTimeOffset,
+                        // swingAmount: 0,
+                        // swingPeriod: 0.5,
+                        previewStartTime: beatsaverInfo.raw._previewStartTime,
+                        previewDuration: beatsaverInfo.raw._previewDuration,
+                        songFilename: id + "_song.ogg",
+                        songDuration: await Utils.getOggDuration(oggBlob),
+                        coverArtFilename: id + "_cover." + coverType,
+                        environment: "DefaultEnvironment",
+                        selectedDifficulty,
+                        difficultiesRingById: {
+                            Easy: {
+                                id: "Easy",
+                                noteJumpSpeed: 10,
+                                calories: 3000,
+                                startBeatOffset: 0,
+                                customLabel: "",
+                                ringNoteJumpSpeed: 10,
+                                ringNoteStartBeatOffset: 0
+                            },
+                            Normal: {
+                                id: "Normal",
+                                noteJumpSpeed: 10,
+                                calories: 4000,
+                                startBeatOffset: 0,
+                                customLabel: "",
+                                ringNoteJumpSpeed: 10,
+                                ringNoteStartBeatOffset: 0
+                            },
+                            Hard: {
+                                id: "Hard",
+                                noteJumpSpeed: 12,
+                                calories: 4500,
+                                startBeatOffset: 0,
+                                customLabel: "",
+                                ringNoteJumpSpeed: 12,
+                                ringNoteStartBeatOffset: 0
+                            },
+                            Expert: {
+                                id: "Expert",
+                                noteJumpSpeed: 15,
+                                calories: 5000,
+                                startBeatOffset: 0,
+                                customLabel: "",
+                                ringNoteJumpSpeed: 15,
+                                ringNoteStartBeatOffset: 0
+                            }
+                        },
+                        createdAt: Date.now(),
+                        lastOpenedAt: Date.now(),
+                        // demo: false,
+                        modSettings: {
+                            customColors: {
+                                isEnabled: false,
+                                colorLeft: "#f21212",
+                                colorLeftOverdrive: 0,
+                                colorRight: "#006cff",
+                                colorRightOverdrive: 0,
+                                envColorLeft: "#FFDD55",
+                                envColorLeftOverdrive: 0,
+                                envColorRight: "#00FFCC",
+                                envColorRightOverdrive: 0,
+                                obstacleColor: "#f21212",
+                                obstacleColorOverdrive: 0,
+                                obstacle2Color: "#d500f9",
+                                obstacleColorOverdrive2: 0
+                            },
+                            mappingExtensions: {
+                                isEnabled: false,
+                                numRows: 3,
+                                numCols: 4,
+                                colWidth: 1,
+                                rowHeight: 1
+                            }
+                        },
+                        // enabledFastWalls: false,
+                        // enabledLightshow: false,
+                    }
+
+                    // Apply Difficulty Info
+                    if (pagePar.mode === "song") {
+                        delete cipherMapInfo.difficultiesRingById.Normal
+                        delete cipherMapInfo.difficultiesRingById.Hard
+                        delete cipherMapInfo.difficultiesRingById.Expert
+                    } else if (pagePar.mode === "all") {
+                        let tarDiffList = ["Easy", "Normal", "Hard", "Expert", "ExpertPlus"]
+                        let diffMap = {}
+                        for (let i = beatsaverInfo.difficulties.length - 1; i >= 0; i--) {
+                            let difficultyInfo = beatsaverInfo.difficulties[i]
+                            let difficulty = difficultyInfo.difficulty
+                            if (difficulty === "ExpertPlus") difficulty = "Expert"
+                            cipherMapInfo.selectedDifficulty = selectedDifficulty = difficulty
+                            if (!diffMap.hasOwnProperty(difficulty)) {
+                                diffMap[difficulty] = beatsaverInfo.difficulties[i].file
+                            } else {
+                                let index = tarDiffList.indexOf(difficulty) - 1
+                                if (index < 0) continue
+                                diffMap[tarDiffList[index]] = beatsaverInfo.difficulties[i].file
+                            }
+                        }
+                        let rawDiffList = ["Easy", "Normal", "Hard", "Expert"]
+                        for (let i = 0; i < rawDiffList.length; i++) {
+                            let difficulty = rawDiffList[i]
+                            if (!diffMap.hasOwnProperty(difficulty))
+                                delete cipherMapInfo.difficultiesRingById[difficulty]
+                        }
+                        for (let difficulty in diffMap) {
+                            let datKey = id + "_" + difficulty + "_Ring.dat"
+                            let diffDatInfo = JSON.parse("{\"_version\":\"2.3.0\",\"_events\":[],\"_notes\":[],\"_ringNotes\":[],\"_obstacles\":[],\"_customData\":{\"_bookmarks\":[]}}")
+                            let difficultyInfo = JSON.parse(await diffMap[difficulty].async("string"))
+                            let changeInfo = this.convertBeatMapInfo(difficultyInfo.version || difficultyInfo._version, difficultyInfo, Math.floor(cipherMapInfo.songDuration * (cipherMapInfo.bpm / 60)))
+                            diffDatInfo._notes = changeInfo._notes
+                            diffDatInfo._obstacles = changeInfo._obstacles
+                            await BLITZ_RHYTHM_files.put("keyvaluepairs", datKey, JSON.stringify(diffDatInfo))
+                        }
+                    }
+
+                    // Create Asset File
+                    await BLITZ_RHYTHM_files.put("keyvaluepairs", id + "_song.ogg", oggBlob)
+                    await BLITZ_RHYTHM_files.put("keyvaluepairs", id + "_cover." + coverType, coverBlob)
+
+                    // Create Cipher Map
+                    let songsStr = await BLITZ_RHYTHM.get("keyvaluepairs", "persist:songs")
+                    let songsJson = JSON.parse(songsStr)
+                    let songPairs = JSON.parse(songsJson.byId)
+                    songPairs[id] = cipherMapInfo
+                    songsJson.byId = JSON.stringify(songPairs)
+                    await BLITZ_RHYTHM.put("keyvaluepairs", "persist:songs", JSON.stringify(songsJson))
+
+                    // console.log(cipherMapInfo)
+
+                    setTimeout(() => {
+                        location.href = "https://cipher-editor-cn.picovr.com/edit/notes?id=" + id + "&difficulty=" + selectedDifficulty + "&mode=Ring"
+                    }, 200)
+                    return // Dont hide loading
+                }
+            }
+            CipherUtils.hideLoading()
+        } catch (e) {
+            CipherUtils.hideLoading()
+            throw e
+        } finally {
+            BLITZ_RHYTHM.close()
+            BLITZ_RHYTHM_files.close()
+        }
+    }
+
     /**
      * 初始化
      */
     async init() {
+        await CipherUtils.waitLoading()
+        try {
+            await this.ApplyPageParmater()
+        } catch (error) {
+            console.error(error)
+            alert("导入谱面时发生错误！可刷新页面重试...")
+        }
+
         let timerFunc = () => {
             CipherUtils.waitLoading().then(() => {
                 this.addImportButton()
-                setTimeout(timerFunc, 1000)
-            }).catch(err => {
-                console.error(err)
                 setTimeout(timerFunc, 1000)
             })
         }
@@ -1817,13 +2052,13 @@ class BeatsaverHelper {
                 let btnImport = $(btnList[2]).clone()[0]
                 let url = "https://cipher-editor-cn.picovr.com/?import=beatsaver@" + btnImport.href.match(/^beatsaver:\/\/(\w{1,})$/)[1]
                 btnImport.ariaLabel = btnImport.title = "导入到闪韵灵境谱面编辑器（仅歌曲）"
-                btnImport.href = url + "&mode=song"
+                btnImport.href = url + "@song"
                 btnImport.target = "_blank"
                 $(btnImport).empty()
                 $(btnImport).append(logoStr)
 
                 let btnImportAll = $(btnImport).clone()[0]
-                btnImportAll.href = url + "&mode=all"
+                btnImportAll.href = url + "@all"
                 btnImportAll.target = "_blank"
                 btnImportAll.ariaLabel = btnImportAll.title = "导入到闪韵灵境谱面编辑器（含音符）"
                 $(btnImportAll).empty()
@@ -1839,10 +2074,10 @@ class BeatsaverHelper {
         let btnList = btnBoxList.find("a")
         if (btnList && btnList.length < 5) {
             let url = "https://cipher-editor-cn.picovr.com/?import=beatsaver@" + location.href.match(/^https:\/\/beatsaver\.com\/maps\/(\w{1,})/)[1]
-            let btn1 = $('<a href="' + url + '&mode=song" rel="noopener" target="_blank" title="导入到闪韵灵境谱面编辑器（仅歌曲）" aria-label="导入到闪韵灵境谱面编辑器（仅歌曲）"></a>')
+            let btn1 = $('<a href="' + url + '@song" rel="noopener" target="_blank" title="导入到闪韵灵境谱面编辑器（仅歌曲）" aria-label="导入到闪韵灵境谱面编辑器（仅歌曲）"></a>')
             btn1.append(logoStr)
             btnBoxList.append(btn1)
-            let btn2 = $('<a href="' + url + '&mode=all" rel="noopener" target="_blank" title="导入到闪韵灵境谱面编辑器（含音符）" aria-label="导入到闪韵灵境谱面编辑器（含音符）"></a>')
+            let btn2 = $('<a href="' + url + '@all" rel="noopener" target="_blank" title="导入到闪韵灵境谱面编辑器（含音符）" aria-label="导入到闪韵灵境谱面编辑器（含音符）"></a>')
             btn2.append(logoStr)
             btnBoxList.append(btn2)
         }

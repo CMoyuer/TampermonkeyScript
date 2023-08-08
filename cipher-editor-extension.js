@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         《闪韵灵境谱面编辑器》功能扩展
 // @namespace    cipher-editor-extension
-// @version      1.3.0
+// @version      1.3.1
 // @description  为《闪韵灵境谱面编辑器》扩展各种实用的功能
 // @author       如梦Nya
 // @license      MIT
@@ -230,6 +230,24 @@ class CipherUtils {
      */
     static hideLoading() {
         $("#loading").remove()
+    }
+
+    /**
+     * 网页弹窗
+     */
+    static showIframe(src){
+        this.hideIframe()
+        let maskBox = $('<div style="position:fixed;top:0;left:0;width:100%;height:100%;background-color:rgba(0,0,0,0.5);z-index:9999;" id="iframe_box"></div>')
+        maskBox.click(this.hideIframe)
+        maskBox.append('<iframe src="' + src + '" style="width:calc(100vw - 400px);height:calc(100vh - 200px);position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);border-radius:12px;"></iframe>')
+        $("#root").append(maskBox)
+    }
+
+    /**
+     * 隐藏Loading
+     */
+    static hideIframe() {
+        $("#iframe_box").remove()
     }
 
     /**
@@ -824,7 +842,8 @@ class SearchSongExtension {
                 let result = name.match(/^\[(\w*)\]/)
                 if (!result) return
                 let previewUrl = "https://skystudioapps.com/bs-viewer/?id=" + result[1]
-                window.open(previewUrl)
+                CipherUtils.showIframe(previewUrl)
+                // window.open(previewUrl)
             }
         }
     }

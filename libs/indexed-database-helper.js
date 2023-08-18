@@ -1,10 +1,11 @@
 // ==UserScript==
-// @name         Web IndexedDB Helper
-// @namespace    web-indexed-database-helper
-// @version      1.0.0
-// @description  浏览器数据库工具类
-// @author       如梦Nya
-// @license      MIT
+// @name        Web IndexedDB Helper
+// @namespace   web-indexed-database-helper
+// @version     1.0.0
+// @description 浏览器数据库工具类
+// @author      如梦Nya
+// @license     MIT
+// @match       *://*/*
 // ==/UserScript==
 
 class _WebIndexedDBHelper {

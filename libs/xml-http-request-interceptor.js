@@ -1,10 +1,11 @@
 // ==UserScript==
-// @name         XML Http Request Interceptor
-// @namespace    xml-http-request-interceptor
-// @version      1.0.0
-// @description  XHR网络请求拦截器
-// @author       如梦Nya
-// @license      MIT
+// @name        XML Http Request Interceptor
+// @namespace   xml-http-request-interceptor
+// @version     1.0.0
+// @description XHR网络请求拦截器
+// @author      如梦Nya
+// @license     MIT
+// @match       *://*/*
 // ==/UserScript==
 
 class XHRIntercept {

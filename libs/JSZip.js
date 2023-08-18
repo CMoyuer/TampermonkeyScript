@@ -1,10 +1,11 @@
 // ==UserScript==
-// @name         JSZip
-// @namespace    jszip
-// @version      1.0.0
-// @description  修复Chrome浏览器Bug后的JSZip库
-// @author       如梦Nya
-// @license      MIT
+// @name        JSZip
+// @namespace   jszip
+// @version     1.0.0
+// @description 修复Chrome浏览器Bug后的JSZip库
+// @author      如梦Nya
+// @license     MIT
+// @match       *://*/*
 // ==/UserScript==
 
 /*!

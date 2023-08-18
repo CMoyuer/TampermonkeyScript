@@ -1,99 +1,26 @@
 // ==UserScript==
-// @name         《闪韵灵境谱面编辑器》功能扩展
-// @namespace    cipher-editor-extension
-// @version      1.3.1
-// @description  为《闪韵灵境谱面编辑器》扩展各种实用的功能
-// @author       如梦Nya
-// @license      MIT
-// @run-at       document-body
-// @grant        unsafeWindow
-// @grant        GM_xmlhttpRequest
-// @connect      beatsaver.com
-// @connect      beatsage.com
-// @match        https://cipher-editor-cn.picovr.com/*
-// @match        https://beatsaver.com/*
-// @match        https://pc.woozooo.com/*
-// @icon         https://cipher-editor-cn.picovr.com/favicon.ico
-// @require      https://code.jquery.com/jquery-3.6.0.min.js
+// @name        《闪韵灵境谱面编辑器》功能扩展
+// @namespace   cipher-editor-extension
+// @version     1.4.0
+// @description 为《闪韵灵境谱面编辑器》扩展各种实用的功能
+// @author      如梦Nya
+// @license     MIT
+// @run-at      document-body
+// @grant       unsafeWindow
+// @grant       GM_xmlhttpRequest
+// @connect     beatsaver.com
+// @connect     beatsage.com
+// @match       https://cipher-editor-cn.picovr.com/*
+// @match       https://beatsaver.com/*
+// @match       https://pc.woozooo.com/*
+// @icon        https://cipher-editor-cn.picovr.com/favicon.ico
+// @require     https://code.jquery.com/jquery-3.6.0.min.js
+// @require     https://greasyfork.org/scripts/473358-jszip/code/main.js?version=1236994
+// @require     https://greasyfork.org/scripts/473361-xml-http-request-interceptor/code/main.js?version=1237028
+// @require     https://greasyfork.org/scripts/473362-web-indexeddb-helper/code/main.js?version=1237029
 // ==/UserScript==
 
-const $ = window.jQuery
-let JSZip = undefined
-
 // ================================================================================ 工具类 ================================================================================
-
-/**
- * 数据库操作类
- */
-class WebDB {
-    constructor() {
-        /** @type {IDBDatabase} */
-        this.db = undefined
-    }
-
-    /**
-     * 打开数据库
-     * @param {string} dbName 数据库名
-     * @param {number | undefined} dbVersion 数据库版本
-     * @returns {Promise<WebDB, any>}
-     */
-    open(dbName, dbVersion) {
-        let self = this
-        return new Promise(function (resolve, reject) {
-            /** @type {IDBFactory} */
-            const indexDB = unsafeWindow.indexedDB || unsafeWindow.webkitIndexedDB || unsafeWindow.mozIndexedDB
-            let req = indexDB.open(dbName, dbVersion)
-            req.onerror = reject
-            req.onsuccess = function () {
-                self.db = this.result
-                resolve(self)
-            }
-        })
-    }
-
-    /**
-     * 查出一条数据
-     * @param {string} tableName 表名
-     * @param {string} key 键名
-     * @returns {Promise<any, any>}
-     */
-    get(tableName, key) {
-        let self = this
-        return new Promise(function (resolve, reject) {
-            let req = self.db.transaction([tableName]).objectStore(tableName).get(key)
-            req.onerror = reject
-            req.onsuccess = function () {
-                resolve(this.result)
-            }
-        })
-    }
-
-    /**
-     * 插入、更新一条数据
-     * @param {string} tableName 表名
-     * @param {string} key 键名
-     * @param {any} value 数据
-     * @returns {Promise<IDBValidKey, any>}
-     */
-    put(tableName, key, value) {
-        let self = this
-        return new Promise(function (resolve, reject) {
-            let req = self.db.transaction([tableName], 'readwrite').objectStore(tableName).put(value, key)
-            req.onerror = reject
-            req.onsuccess = function () {
-                resolve(this.result)
-            }
-        })
-    }
-
-    /**
-     * 关闭数据库
-     */
-    close() {
-        this.db.close()
-        delete this.db
-    }
-}
 
 /**
  * 闪韵灵境工具类
@@ -127,7 +54,7 @@ class CipherUtils {
      * @returns {object}
      */
     static async getCipherMapFullInfo(id) {
-        let BLITZ_RHYTHM = await new WebDB().open("BLITZ_RHYTHM")
+        let BLITZ_RHYTHM = await WebDB.open("BLITZ_RHYTHM")
         let rawSongs = await BLITZ_RHYTHM.get("keyvaluepairs", "persist:songs")
         BLITZ_RHYTHM.close()
         let songsInfo = JSON.parse(rawSongs)
@@ -146,12 +73,12 @@ class CipherUtils {
         let blob
         if (info.officialId) {
             // 官谱
-            let BLITZ_RHYTHM_official = await new WebDB().open("BLITZ_RHYTHM-official")
+            let BLITZ_RHYTHM_official = await WebDB.open("BLITZ_RHYTHM-official")
             blob = await BLITZ_RHYTHM_official.get("keyvaluepairs", songFileName)
             BLITZ_RHYTHM_official.close()
         } else {
             // 自定义谱
-            let BLITZ_RHYTHM_files = await new WebDB().open("BLITZ_RHYTHM-files")
+            let BLITZ_RHYTHM_files = await WebDB.open("BLITZ_RHYTHM-files")
             blob = await BLITZ_RHYTHM_files.get("keyvaluepairs", songFileName)
             BLITZ_RHYTHM_files.close()
         }
@@ -235,7 +162,7 @@ class CipherUtils {
     /**
      * 网页弹窗
      */
-    static showIframe(src){
+    static showIframe(src) {
         this.hideIframe()
         let maskBox = $('<div style="position:fixed;top:0;left:0;width:100%;height:100%;background-color:rgba(0,0,0,0.5);z-index:9999;" id="iframe_box"></div>')
         maskBox.click(this.hideIframe)
@@ -263,59 +190,6 @@ class CipherUtils {
                 resolve()
             }), 500)
         })
-    }
-}
-
-/**
- * 沙盒工具类
- */
-class SandBox {
-    /** @type {HTMLIFrameElement | undefined} */
-    static _sandBoxIframe = undefined
-
-    /**
-     * 创建一个Iframe沙盒
-     * @returns {HTMLIFrameElement}
-     */
-    static getDocument() {
-        if (!SandBox._sandBoxIframe) {
-            let id = GM_info.script.namespace + "_iframe"
-
-            // 找ID
-            let iframes = $('#' + id)
-            if (iframes.length > 0) SandBox._sandBoxIframe = iframes[0]
-
-            // 不存在，创建一个
-            if (!SandBox._sandBoxIframe) {
-                let ifr = document.createElement("iframe");
-                ifr.id = id
-                ifr.style.display = "none"
-                document.body.appendChild(ifr);
-                SandBox._sandBoxIframe = ifr;
-            }
-        }
-        return SandBox._sandBoxIframe
-    }
-
-    /**
-     * 动态添加Script
-     * @param {string} url 脚本链接
-     * @returns {Promise<Element>}
-     */
-    static dynamicLoadJs(url) {
-        return new Promise(function (resolve, reject) {
-            let ifrdoc = SandBox.getDocument().contentDocument;
-            let script = ifrdoc.createElement('script')
-            script.type = 'text/javascript'
-            script.src = url
-            script.onload = script.onreadystatechange = function () {
-                if (!this.readyState || this.readyState === "loaded" || this.readyState === "complete") {
-                    resolve(script)
-                    script.onload = script.onreadystatechange = null
-                }
-            }
-            ifrdoc.body.appendChild(script)
-        });
     }
 }
 
@@ -467,85 +341,6 @@ class BeatSaverUtils {
 }
 
 /**
- * XMLHttpRequest请求拦截器
- */
-class XHRIntercept {
-    /** @type {XHRIntercept} */
-    static _self
-
-    /**
-     * 初始化
-     * @returns {XHRIntercept}
-     */
-    constructor() {
-        if (XHRIntercept._self) return XHRIntercept._self
-        XHRIntercept._self = this
-
-        // 修改EventListener方法
-        let rawXhrAddEventListener = XMLHttpRequest.prototype.addEventListener
-        XMLHttpRequest.prototype.addEventListener = function (key, func) {
-            if (key === "progress") {
-                this.onprogress = func
-            } else {
-                rawXhrAddEventListener.apply(this, arguments)
-            }
-        }
-        let rawXhrRemoveEventListener = XMLHttpRequest.prototype.removeEventListener
-        XMLHttpRequest.prototype.removeEventListener = function (key, func) {
-            if (key === "progress") {
-                this.onprogress = undefined
-            } else {
-                rawXhrRemoveEventListener.apply(this, arguments)
-            }
-        }
-
-        // 修改send方法
-        /** @type {function[]} */
-        this.sendIntercepts = []
-        this.rawXhrSend = XMLHttpRequest.prototype.send
-        XMLHttpRequest.prototype.send = function () { XHRIntercept._self._xhrSend(this, arguments) }
-    }
-
-    /**
-     * 添加Send拦截器
-     * @param {function} func 
-     */
-    onXhrSend(func) {
-        if (this.sendIntercepts.indexOf(func) >= 0) return
-        this.sendIntercepts.push(func)
-    }
-
-    /**
-     * 删除Send拦截器
-     * @param {function | undefined} func 
-     */
-    offXhrSend(func) {
-        if (typeof func === "function") {
-            let index = this.sendIntercepts.indexOf(func)
-            if (index < 0) return
-            this.sendIntercepts.splice(index, 1)
-        } else {
-            this.sendIntercepts = []
-        }
-    }
-
-
-    /**
-     * 发送拦截器
-     * @param {XMLHttpRequest} self 
-     * @param {IArguments} args
-     */
-    _xhrSend(self, args) {
-        let complete = () => { this.rawXhrSend.apply(self, args) }
-        for (let i = 0; i < this.sendIntercepts.length; i++) {
-            let flag = this.sendIntercepts[i](self, args, complete)
-            if (flag) return
-        }
-        complete()
-    }
-}
-
-/**
  * 通用工具类
  */
 class Utils {
@@ -574,22 +369,20 @@ class Utils {
      */
     static getOggDuration(blob) {
         return new Promise((resolve, reject) => {
-            let ifDoc = SandBox.getDocument().contentDocument
-
-            let audio = ifDoc.createElement('audio')
-            audio.addEventListener("loadedmetadata", () => {
-                resolve(audio.duration)
-                // $(audio).remove()
-            })
-            audio.addEventListener('error', () => {
-                reject(audio.error)
-            })
-
             let reader = new FileReader()
             reader.onerror = () => {
                 reject(reader.error)
             }
             reader.onload = (e) => {
+                let audio = document.createElement('audio')
+                audio.addEventListener("loadedmetadata", () => {
+                    resolve(audio.duration)
+                    $(audio).remove()
+                })
+                audio.addEventListener('error', () => {
+                    reject(audio.error)
+                    $(audio).remove()
+                })
                 audio.src = e.target.result
             }
             reader.readAsDataURL(new File([blob], "song.ogg", { type: "audio/ogg" }))
@@ -760,7 +553,7 @@ class SearchSongExtension {
                 return true
             }
         }
-        xhrIntercept.onXhrSend(onSend)
+        xhrIntercept.onSend(onSend)
     }
     /**
      * 更新数据库
@@ -768,9 +561,9 @@ class SearchSongExtension {
      * @returns 
      */
     async updateDatabase(isForce) {
-        let BLITZ_RHYTHM = await new WebDB().open("BLITZ_RHYTHM")
-        let BLITZ_RHYTHM_files = await new WebDB().open("BLITZ_RHYTHM-files")
-        let BLITZ_RHYTHM_official = await new WebDB().open("BLITZ_RHYTHM-official")
+        let BLITZ_RHYTHM = await WebDB.open("BLITZ_RHYTHM")
+        let BLITZ_RHYTHM_files = await WebDB.open("BLITZ_RHYTHM-files")
+        let BLITZ_RHYTHM_official = await WebDB.open("BLITZ_RHYTHM-official")
         let songInfos = []
         let hasChanged = false
         let songsInfo
@@ -885,7 +678,7 @@ class SearchSongExtension {
      * @returns 
      */
     async applyConvertCiphermapButton() {
-        let BLITZ_RHYTHM = await new WebDB().open("BLITZ_RHYTHM")
+        let BLITZ_RHYTHM = await WebDB.open("BLITZ_RHYTHM")
         try {
             let rawSongs = await BLITZ_RHYTHM.get("keyvaluepairs", "persist:songs")
             let songsInfo = JSON.parse(rawSongs)
@@ -1070,8 +863,8 @@ class ImportBeatmapExtension {
      * @param {number} targetDifficulty
      */
     async importBeatmap(zipBlob, nowBeatmapInfo, targetDifficulty) {
-        let BLITZ_RHYTHM = await new WebDB().open("BLITZ_RHYTHM")
-        let BLITZ_RHYTHM_files = await new WebDB().open("BLITZ_RHYTHM-files")
+        let BLITZ_RHYTHM = await WebDB.open("BLITZ_RHYTHM")
+        let BLITZ_RHYTHM_files = await WebDB.open("BLITZ_RHYTHM-files")
         try {
             // 获取当前谱面基本信息
             let rawSongs = await BLITZ_RHYTHM.get("keyvaluepairs", "persist:songs")
@@ -1232,8 +1025,8 @@ class ImportBeatmapExtension {
     }
 
     async ApplyPageParmater() {
-        let BLITZ_RHYTHM = await new WebDB().open("BLITZ_RHYTHM")
-        let BLITZ_RHYTHM_files = await new WebDB().open("BLITZ_RHYTHM-files")
+        let BLITZ_RHYTHM = await WebDB.open("BLITZ_RHYTHM")
+        let BLITZ_RHYTHM_files = await WebDB.open("BLITZ_RHYTHM-files")
         try {
             let pagePar = CipherUtils.getPageParmater()
             if (!pagePar) return
@@ -1507,7 +1300,7 @@ class UploadCiphermapExtension {
         }
         let mapId = CipherUtils.getNowBeatmapInfo().id
         // 获取谱面信息
-        let BLITZ_RHYTHM = await new WebDB().open("BLITZ_RHYTHM")
+        let BLITZ_RHYTHM = await WebDB.open("BLITZ_RHYTHM")
         try {
             let songsStr = await BLITZ_RHYTHM.get("keyvaluepairs", "persist:songs")
             let songPairs = JSON.parse(JSON.parse(songsStr).byId)
@@ -1539,7 +1332,7 @@ class UploadCiphermapExtension {
      */
     async uploadUserInfo() {
         // 获取谱面信息
-        let BLITZ_RHYTHM = await new WebDB().open("BLITZ_RHYTHM")
+        let BLITZ_RHYTHM = await WebDB.open("BLITZ_RHYTHM")
         try {
             let userStr = await BLITZ_RHYTHM.get("keyvaluepairs", "persist:user")
             let userInfo = JSON.parse(JSON.parse(userStr).userInfo)
@@ -2161,11 +1954,6 @@ function initBeatsaver() {
     'use strict';
 
     if (location.href.indexOf("cipher-editor-cn.picovr.com") > 0) {
-        // 依赖库
-        const sandBox = SandBox.getDocument()
-        await SandBox.dynamicLoadJs("https://cmoyuer.gitee.io/my-resources/js/jszip.min.js")
-        JSZip = sandBox.contentWindow.JSZip
-
         initEditor()
     } else if (location.href.indexOf("pc.woozooo.com/mydisk.php") > 0) {
         initLZY()

@@ -15,9 +15,9 @@
 // @match       https://pc.woozooo.com/*
 // @icon        https://cipher-editor-cn.picovr.com/favicon.ico
 // @require     https://code.jquery.com/jquery-3.6.0.min.js
-// @require     https://greasyfork.org/scripts/473358-jszip/code/main.js?version=1236994
-// @require     https://greasyfork.org/scripts/473361-xml-http-request-interceptor/code/main.js?version=1237028
-// @require     https://greasyfork.org/scripts/473362-web-indexeddb-helper/code/main.js?version=1237029
+// @require     https://greasyfork.org/scripts/473358-jszip/code/main.js?version=1237031
+// @require     https://greasyfork.org/scripts/473361-xml-http-request-interceptor/code/main.js?version=1237032
+// @require     https://greasyfork.org/scripts/473362-web-indexeddb-helper/code/main.js?version=1237033
 // ==/UserScript==
 
 // ================================================================================ 工具类 ================================================================================

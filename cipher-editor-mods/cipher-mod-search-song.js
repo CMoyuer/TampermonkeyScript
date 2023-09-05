@@ -16,40 +16,79 @@
 // ==/UserScript==
 
 const I18N = {
-    en: {
-        config: {
+    en: { // English
+        parameter: {
             search_page_sum: {
                 name: "Search Page Count",
                 description: "Number of pages searched from BeatSaver at one time",
+            },
+            search_timeout: {
+                name: "Search Timeout",
+                description: "Timeout for searching for songs",
+            }
+        },
+        methods: {
+            test: {
+                name: "Test",
+                description: "Just A Test",
             }
         }
     },
-    cn: {
-        config: {
+    cn: { // Chinese
+        parameter: {
             search_page_sum: {
                 name: "搜索页面数量",
                 description: "每次从BeatSaver搜索歌曲的页数，页数越多速度越慢",
+            },
+            search_timeout: {
+                name: "搜索超时",
+                description: "搜索歌曲的超时时间",
+            }
+        },
+        methods: {
+            test: {
+                name: "测试",
+                description: "只是一个测试按钮",
             }
         }
     }
 }
 
-const CONFIG = {
-    search_page_sum: {
-        name: $t("config.search_page_sum.name"),
-        description: $t("config.search_page_sum.description"),
-        default: 1
+const PARAMETER = [
+    {
+        id: "search_page_sum",
+        name: $t("parameter.search_page_sum.name"),
+        description: $t("parameter.search_page_sum.description"),
+        type: "number",
+        default: 1,
+        min: 1,
+        max: 10
+    },
+    {
+        id: "search_timeout",
+        name: $t("parameter.search_timeout.name"),
+        description: $t("parameter.search_timeout.description"),
+        type: "number",
+        default: 10 * 1000,
+        min: 1000,
+        max: 20 * 1000
     }
-}
+]
 
 const METHODS = [
     {
-        name: "Test",
-        name_cn: "测试",
+        name: $t("methods.test.name"),
+        description: $t("methods.test.description"),
         func: () => {
-            console.log("Test")
+            log($t("methods.test.name"))
         }
-    }
+    }, {
+        name: $t("methods.test.name"),
+        description: $t("methods.test.description"),
+        func: () => {
+            log($t("methods.test.name"))
+        }
+    },
 ]
 
 function onEnabled() {
@@ -58,6 +97,11 @@ function onEnabled() {
 
 function onDisabled() {
     log("onDisabled")
+}
+
+function onParameterValueChanged(id, val) {
+    log("onParameterValueChanged", id, val)
+    log("debug", $p(id))
 }
 
 (function () {

@@ -16,8 +16,36 @@ function log(...data) {
     console.log("[" + scriptNamespace + "]", ...data)
 }
 
+/**
+ * i18n
+ * @param {string} key 
+ */
 function $t(key) {
+    let language = localStorage.getItem("language") ?? "en"
+    let keys = key.split('.')
+    try {
+        let val = I18N[language]
+        keys.forEach(element => {
+            val = val[element]
+        })
+        return val
+    } catch (error) {
+        console.warn("[" + scriptNamespace + "]I18N Key not found: " + key)
+        return key
+    }
+}
 
+/**
+ * Get parameter value
+ * @param {string} parameterId 
+ */
+function $p(parameterId) {
+    try {
+        let info = JSON.parse(localStorage.getItem("mod-" + scriptNamespace))
+        return info.parameter[parameterId].value
+    } catch (error) {
+        return
+    }
 }
 
 (function () {
@@ -31,6 +59,10 @@ function $t(key) {
         disabled: () => {
             if (typeof (onDisabled) === "function")
                 onDisabled()
+        },
+        parameterChanged: (id, val) => {
+            if (typeof (onParameterValueChanged) === "function")
+                onParameterValueChanged(id, val)
         }
     }
 
@@ -39,7 +71,7 @@ function $t(key) {
         unsafeWindow.modloader.addMod({
             id: scriptNamespace,
             info: scriptInfo,
-            config: CONFIG,
+            parameter: PARAMETER,
             methods: METHODS,
             _methods,
             window,

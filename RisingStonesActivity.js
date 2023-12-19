@@ -1,8 +1,7 @@
 // ==UserScript==
-// @name               risingstones-activity
-// @name:zh-CN         FF14石之家活动助手
+// @name               FF14石之家活动助手
 // @namespace          https://github.com/cmoyuer
-// @version            1.0.0
+// @version            1.0.1
 // @author             lisonge
 // @description        自动完成FF14石之家活动
 // @icon               https://ff14risingstones.web.sdo.com/favicon.ico

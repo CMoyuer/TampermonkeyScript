@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name               FF14石之家活动助手
 // @namespace          https://github.com/cmoyuer
-// @version            1.0.1
+// @version            1.1.0
 // @author             lisonge
 // @description        自动完成FF14石之家活动
 // @icon               https://ff14risingstones.web.sdo.com/favicon.ico
@@ -29,28 +29,19 @@ const apiUrl = "https://apiff14risingstones.web.sdo.com/api";
         func: async () => {
             // 活动信息
             let likeNum = 5
+            let activeId = "online2312"
             // 判断是否已登录
-            await checkUserLogin()
+            await isLogin()
             // 获取任务完成情况
-            let taskInfo = await ajax({
-                url: "/home/active/online2312/myTaskInfo",
-                method: "GET",
-                responseType: "json"
-            })
-            if (taskInfo.code != 10000) throw "获取活动信息失败"
-            let dayTask = taskInfo.data.dayTask
+            let taskInfo = await getTaskInfo(activeId)
+            let dayTask = taskInfo.dayTask
             // 签到
-            if (dayTask.sign_status == 0) {
-                console.log("正在签到...")
-                await loginIn()
-                console.log("签到成功")
-            } else {
-                console.log("今日已签到")
-            }
+            if (dayTask.sign_status == 0) await loginIn()
+            // 签到盖章
+            if (dayTask.sign_seal == 0) await doSeal(activeId, 0)
             // 点赞
             if (dayTask.like_num < likeNum) {
                 likeNum -= dayTask.like_num
-                console.log("正在准备点赞...数量" + likeNum + "个")
                 let postList = await getPostList()
                 for (let i = 0; i < postList.length; i++) {
                     let info = postList[i]
@@ -58,11 +49,11 @@ const apiUrl = "https://apiff14risingstones.web.sdo.com/api";
                     await likePost(info.posts_id)
                     if (--likeNum <= 0) break
                 }
-                console.log("点赞完成")
             }
+            // 点赞盖章
+            if (dayTask.like_seal == 0) await doSeal(activeId, 1)
             // 评论
             if (dayTask.comment_status == 0) {
-                console.log("正在评论...")
                 let postList = await getPostList()
                 for (let i = 0; i < postList.length; i++) {
                     let info = postList[i]
@@ -73,11 +64,9 @@ const apiUrl = "https://apiff14risingstones.web.sdo.com/api";
                         break
                     }
                 }
-                console.log("评论完成")
             }
-            // 盖章
-            for (let i = 0; i <= 3; i++)
-                doSeal(i)
+            // 评论盖章
+            if (dayTask.comment_seal == 0) await doSeal(activeId, 2)
         }
     })
 
@@ -86,51 +75,55 @@ const apiUrl = "https://apiff14risingstones.web.sdo.com/api";
             try {
                 await item.func()
                 if (item.url) {
-                    if (confirm("【石之家活动助手】打卡已完成，要不要打开活动页看看呢？"))
+                    if (confirm("【石之家活动助手】打卡已完成，打开活动页看看吧？"))
                         GM_openInTab(item.url, false)
                 } else {
                     alert("【石之家活动助手】打卡已完成")
                 }
             } catch (error) {
-                alert("【石之家活动助手】" + error)
+                if (error) alert("【石之家活动助手】打卡失败：" + error)
             }
         });
     })
 })();
 
-function ajax(config) {
-    if (config && config.url && config.url.startsWith("/"))
-        config.url = apiUrl + config.url
-    return new Promise((resolve, reject) => {
-        config.onload = res => {
-            if (res.status >= 200 && res.status < 300) {
-                try {
-                    resolve(JSON.parse(res.response))
-                } catch {
-                    resolve(res.response)
-                }
-            }
-            else {
-                reject("HTTP Code: " + res.status)
-            }
-        }
-        config.onerror = err => {
-            reject(err)
-        }
-        GM_xmlhttpRequest(config)
+// =================================== func ===================================
+
+/**
+ * 获取指定活动信息
+ * @param {string} activeId 
+ * @returns 
+ */
+async function getTaskInfo(activeId) {
+    let result = await ajax({
+        url: "/home/active/" + activeId + "/myTaskInfo",
+        method: "GET",
+        responseType: "json"
     })
+    if (result.code != 10000) {
+        if (confirm("【石之家活动助手】获取活动信息失败（" + result.msg + "），要不要去石之家看看呢？"))
+            GM_openInTab("https://ff14risingstones.web.sdo.com/pc/index.html#/me/info", false)
+        throw false
+    }
+    return result.data
 }
+
+// =================================== Apis ===================================
 
 /**
  * 判断是否已登录
  */
-async function checkUserLogin() {
+async function isLogin() {
     let result = await ajax({
         url: "/home/GHome/isLogin",
         method: "GET",
         responseType: "json"
     })
-    if (result.code != 10000) throw "请登录后再进行操作"
+    if (result.code != 10000) {
+        if (confirm("【石之家活动助手】您还没有登录石之家，是否现在去登录呢"))
+            GM_openInTab("https://ff14risingstones.web.sdo.com/pc/index.html#/me/info", false)
+        throw false
+    }
 }
 
 /**
@@ -225,8 +218,10 @@ async function commentPost(posts_id, content) {
 
 /**
  * 活动每日盖章
+ * @param {string} activeId 
+ * @param {number} type 
  */
-async function doSeal(type) {
+async function doSeal(activeId, type) {
     let formData = new FormData()
     formData.append("type", type)
     let result = await ajax({
@@ -241,4 +236,29 @@ async function doSeal(type) {
         console.error("盖章失败", result)
         throw result.msg
     }
+}
+
+// =================================== Utils ===================================
+
+function ajax(config) {
+    if (config && config.url && config.url.startsWith("/"))
+        config.url = apiUrl + config.url
+    return new Promise((resolve, reject) => {
+        config.onload = res => {
+            if (res.status >= 200 && res.status < 300) {
+                try {
+                    resolve(JSON.parse(res.response))
+                } catch {
+                    resolve(res.response)
+                }
+            }
+            else {
+                reject("HTTP Code: " + res.status)
+            }
+        }
+        config.onerror = err => {
+            reject(err)
+        }
+        GM_xmlhttpRequest(config)
+    })
 }

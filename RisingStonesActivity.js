@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name               FF14石之家活动助手
 // @namespace          https://github.com/cmoyuer
-// @version            1.1.0
+// @version            1.1.1
 // @author             lisonge
 // @description        自动完成FF14石之家活动
 // @icon               https://ff14risingstones.web.sdo.com/favicon.ico
@@ -38,7 +38,7 @@ const apiUrl = "https://apiff14risingstones.web.sdo.com/api";
             // 签到
             if (dayTask.sign_status == 0) await loginIn()
             // 签到盖章
-            if (dayTask.sign_seal == 0) await doSeal(activeId, 0)
+            if (dayTask.sign_seal == 0) await doSeal(activeId, 1)
             // 点赞
             if (dayTask.like_num < likeNum) {
                 likeNum -= dayTask.like_num
@@ -51,7 +51,7 @@ const apiUrl = "https://apiff14risingstones.web.sdo.com/api";
                 }
             }
             // 点赞盖章
-            if (dayTask.like_seal == 0) await doSeal(activeId, 1)
+            if (dayTask.like_seal == 0) await doSeal(activeId, 2)
             // 评论
             if (dayTask.comment_status == 0) {
                 let postList = await getPostList()
@@ -66,7 +66,7 @@ const apiUrl = "https://apiff14risingstones.web.sdo.com/api";
                 }
             }
             // 评论盖章
-            if (dayTask.comment_seal == 0) await doSeal(activeId, 2)
+            if (dayTask.comment_seal == 0) await doSeal(activeId, 3)
         }
     })
 
@@ -225,7 +225,7 @@ async function doSeal(activeId, type) {
     let formData = new FormData()
     formData.append("type", type)
     let result = await ajax({
-        url: "/home/active/online2312/doSeal",
+        url: "/home/active/" + activeId + "/doSeal",
         method: "POST",
         data: formData,
         responseType: "json",

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name               FF14石之家活动助手
 // @namespace          https://github.com/cmoyuer
-// @version            1.1.1
+// @version            1.2.0
 // @author             lisonge
 // @description        自动完成FF14石之家活动
 // @icon               https://ff14risingstones.web.sdo.com/favicon.ico
@@ -42,27 +42,41 @@ const apiUrl = "https://apiff14risingstones.web.sdo.com/api";
             // 点赞
             if (dayTask.like_num < likeNum) {
                 likeNum -= dayTask.like_num
-                let postList = await getPostList()
-                for (let i = 0; i < postList.length; i++) {
-                    let info = postList[i]
-                    if (info.is_top || info.is_like) continue
-                    await likePost(info.posts_id)
-                    if (--likeNum <= 0) break
+                let posts_id = ""
+                while (!posts_id) {
+                    let postList = await getPostList()
+                    for (let i = 0; i < postList.length; i++) {
+                        let info = postList[i]
+                        if (info.is_top || info.is_like) continue
+                        await likePost(info.posts_id)
+                        posts_id = info.posts_id
+                        if (--likeNum <= 0) break
+                    }
                 }
             }
             // 点赞盖章
             if (dayTask.like_seal == 0) await doSeal(activeId, 2)
             // 评论
             if (dayTask.comment_status == 0) {
-                let postList = await getPostList()
-                for (let i = 0; i < postList.length; i++) {
-                    let info = postList[i]
-                    if (info.is_top) continue
-                    let content = prompt("评论帖子【" + info.title + "】", "很棒的帖子，为楼主点赞")
-                    if (content) {
-                        await commentPost(info.posts_id, content)
+                let posts_id = ""
+                console.log(posts_id,!posts_id)
+                while (!posts_id) {
+                    let postList = await getPostList()
+                    for (let i = 0; i < postList.length; i++) {
+                        let info = postList[i]
+                        if (info.is_top || info.is_refine) continue
+                        await commentPost(info.posts_id, "<p><span class=\"at-emo\">[emo1]</span></p>")
+                        posts_id = info.posts_id
                         break
                     }
+                }
+                // 删除刚刚的评论
+                let postList = await getMyCommentList()
+                for (let i = 0; i < postList.length; i++) {
+                    let postInfo = postList[i]
+                    if (postInfo.posts_id != posts_id) continue
+                    await deleteComment(postInfo.posts_comment_id)
+                    break
                 }
             }
             // 评论盖章
@@ -95,17 +109,17 @@ const apiUrl = "https://apiff14risingstones.web.sdo.com/api";
  * @returns 
  */
 async function getTaskInfo(activeId) {
-    let result = await ajax({
+    let res = await ajax({
         url: "/home/active/" + activeId + "/myTaskInfo",
         method: "GET",
         responseType: "json"
     })
-    if (result.code != 10000) {
-        if (confirm("【石之家活动助手】获取活动信息失败（" + result.msg + "），要不要去石之家看看呢？"))
+    if (res.code != 10000) {
+        if (confirm("【石之家活动助手】获取活动信息失败（" + res.msg + "），要不要去石之家看看呢？"))
             GM_openInTab("https://ff14risingstones.web.sdo.com/pc/index.html#/me/info", false)
         throw false
     }
-    return result.data
+    return res.data
 }
 
 // =================================== Apis ===================================
@@ -114,12 +128,12 @@ async function getTaskInfo(activeId) {
  * 判断是否已登录
  */
 async function isLogin() {
-    let result = await ajax({
+    let res = await ajax({
         url: "/home/GHome/isLogin",
         method: "GET",
         responseType: "json"
     })
-    if (result.code != 10000) {
+    if (res.code != 10000) {
         if (confirm("【石之家活动助手】您还没有登录石之家，是否现在去登录呢"))
             GM_openInTab("https://ff14risingstones.web.sdo.com/pc/index.html#/me/info", false)
         throw false
@@ -130,14 +144,14 @@ async function isLogin() {
  * 签到
  */
 async function loginIn() {
-    let result = await ajax({
+    let res = await ajax({
         url: "/home/sign/signIn",
         method: "POST",
         responseType: "json"
     })
-    if (result.code != 10000 && result.code != 10001) {
-        console.error("签到失败", result)
-        throw result.msg
+    if (res.code != 10000 && res.code != 10001) {
+        console.error("签到失败", res)
+        throw res.msg
     }
 }
 
@@ -160,13 +174,13 @@ async function getPostList(option) {
         if (dataStr.length > 0) dataStr += "&"
         dataStr += key + "=" + option[key]
     }
-    let result = await ajax({
+    let res = await ajax({
         url: "/home/posts/postsList?" + dataStr,
         method: "GET",
         responseType: "json"
     })
-    if (result.code != 10000) throw result.msg
-    return result.data.rows
+    if (res.code != 10000) throw res.msg
+    return res.data.rows
 }
 
 /**
@@ -177,7 +191,7 @@ async function likePost(id) {
     formData.append("type", 1)
     formData.append("id", id)
 
-    let result = await ajax({
+    let res = await ajax({
         url: "/home/posts/like",
         method: "POST",
         data: formData,
@@ -185,9 +199,9 @@ async function likePost(id) {
         contentType: false,
         processData: false,
     })
-    if (result.code != 10000) {
-        console.error("点赞失败", result)
-        throw result.msg
+    if (res.code != 10000) {
+        console.error("点赞失败", res)
+        throw res.msg
     }
 }
 
@@ -196,13 +210,13 @@ async function likePost(id) {
  */
 async function commentPost(posts_id, content) {
     let formData = new FormData()
-    formData.append("content", "<p>" + content + "</p>")
+    formData.append("content", content)
     formData.append("posts_id", posts_id)
     formData.append("parent_id", 0)
     formData.append("root_parent", 0)
     formData.append("comment_pic", "")
 
-    let result = await ajax({
+    let res = await ajax({
         url: "/home/posts/comment",
         method: "POST",
         data: formData,
@@ -210,9 +224,48 @@ async function commentPost(posts_id, content) {
         contentType: false,
         processData: false,
     })
-    if (result.code != 10000) {
-        console.error("评论失败", result)
-        throw result.msg
+    if (res.code != 10000) {
+        console.error("评论失败", res)
+        throw res.msg
+    }
+}
+
+/**
+ * 获取我的评论列表
+ * @param {string | number | undefined} page 
+ * @returns 
+ */
+async function getMyCommentList(page = 1) {
+    let res = await ajax({
+        url: "/home/sysMsg/commentMsg?channel=2&page=" + page,
+        method: "GET",
+        responseType: "json"
+    })
+    if (res.code != 10000) {
+        console.error("获取评论列表失败", res)
+        throw res.msg
+    }
+    return res.data
+}
+
+/**
+ * 删除评论
+ * @param {string | number} commentId 
+ */
+async function deleteComment(commentId) {
+    console.log(JSON.stringify({ "comment_id": commentId }))
+    let res = await ajax({
+        url: "/home/posts/deleteComment",
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        data: JSON.stringify({ "comment_id": commentId }),
+        responseType: "json",
+        // contentType: "application/json",
+        processData: false,
+    })
+    if (res.code != 10000) {
+        console.error("删除评论失败", res)
+        throw res.msg
     }
 }
 
@@ -224,7 +277,7 @@ async function commentPost(posts_id, content) {
 async function doSeal(activeId, type) {
     let formData = new FormData()
     formData.append("type", type)
-    let result = await ajax({
+    let res = await ajax({
         url: "/home/active/" + activeId + "/doSeal",
         method: "POST",
         data: formData,
@@ -232,9 +285,9 @@ async function doSeal(activeId, type) {
         contentType: false,
         processData: false,
     })
-    if (result.code != 10000) {
-        console.error("盖章失败", result)
-        throw result.msg
+    if (res.code != 10000) {
+        console.error("盖章失败", res)
+        throw res.msg
     }
 }
 
